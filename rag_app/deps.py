@@ -1,0 +1,72 @@
+# rag-app/rag_app/deps.py
+from rag_app.config import AppConfig
+from rag_core.capabilities.retriever import HybridRetriever
+from rag_core.capabilities.indexer import ChromaIndexer
+from rag_core.capabilities.embedder import LocalEmbedder, OpenAIEmbedder
+from rag_core.capabilities.chat_model import LangChainChatModel
+from rag_core.memory.conversation import ConversationStore
+
+
+_config: AppConfig | None = None
+_retriever = None
+_indexer = None
+_embedder = None
+_model = None
+_conversation_store = None
+
+
+def init(config: AppConfig):
+    global _config, _retriever, _indexer, _embedder, _model, _conversation_store
+    _config = config
+
+    _retriever = HybridRetriever(
+        persist_dir=config.chromadb.persist_dir,
+        collection_name=config.chromadb.collection_name,
+        use_reranker=config.reranker.enabled,
+    )
+    _indexer = ChromaIndexer(
+        persist_dir=config.chromadb.persist_dir,
+        collection_name=config.chromadb.collection_name,
+    )
+    if config.embedding.provider == "openai":
+        _embedder = OpenAIEmbedder(model=config.embedding.model, api_key=config.embedding.api_key)
+    else:
+        _embedder = LocalEmbedder(model_name=config.embedding.model)
+
+    _model = LangChainChatModel(
+        provider=config.llm.provider,
+        model=config.llm.model,
+        api_key=config.llm.api_key,
+        base_url=config.llm.base_url or None,
+    )
+    _conversation_store = ConversationStore()
+
+
+def get_config() -> AppConfig:
+    assert _config is not None
+    return _config
+
+
+def get_retriever():
+    assert _retriever is not None
+    return _retriever
+
+
+def get_indexer():
+    assert _indexer is not None
+    return _indexer
+
+
+def get_embedder():
+    assert _embedder is not None
+    return _embedder
+
+
+def get_model():
+    assert _model is not None
+    return _model
+
+
+def get_conversation_store():
+    assert _conversation_store is not None
+    return _conversation_store

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Enterprise Assistant</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+<div class="app-container">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Documents</h2>
+      <form id="upload-form"
+            hx-encoding="multipart/form-data"
+            hx-post="/api/documents"
+            hx-target="#upload-status"
+            hx-swap="innerHTML">
+        <input type="file" name="file" id="file-input" required>
+        <button type="submit" class="btn btn-primary">Upload</button>
+      </form>
+      <div id="upload-status"></div>
+    </div>
+    <div class="doc-list" id="doc-list">
+      <p class="empty">No documents indexed.</p>
+    </div>
+  </aside>
+  <main class="chat-area">
+    <div class="chat-header">
+      <span>RAG Assistant</span>
+      <select id="model-select" class="settings-select">
+        <option value="openai:gpt-4o-mini">GPT-4o Mini</option>
+        <option value="anthropic:claude-sonnet-4-6">Claude Sonnet</option>
+        <option value="deepseek:deepseek-chat">DeepSeek</option>
+      </select>
+      <span id="namespace-badge" class="badge">default</span>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="message system">
+        <p>Ask a question about your documents.</p>
+      </div>
+    </div>
+    <form class="chat-input"
+          hx-post="/api/query"
+          hx-target="#chat-messages"
+          hx-swap="beforeend"
+          hx-on::after-request="this.reset()">
+      <input type="text" name="question" placeholder="Ask about your documents..." required autofocus>
+      <input type="hidden" name="namespace" value="default">
+      <button type="submit" class="btn btn-send">Send</button>
+    </form>
+  </main>
+</div>
+</body>
+</html>
