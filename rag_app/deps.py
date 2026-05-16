@@ -67,6 +67,11 @@ def get_model():
     return _model
 
 
+def set_model(model):
+    global _model
+    _model = model
+
+
 def get_conversation_store():
     assert _conversation_store is not None
     return _conversation_store

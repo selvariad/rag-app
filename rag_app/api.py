@@ -65,6 +65,8 @@ async def document_status(source_id: str, namespace: str = Query(DEFAULT_NAMESPA
 
 @router.post("/api/query")
 async def query(request: dict):
+    if "question" not in request:
+        raise HTTPException(status_code=422, detail="Field 'question' is required")
     question = request["question"]
     filters = None
     if "filters" in request and request["filters"]:
