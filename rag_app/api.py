@@ -1,5 +1,6 @@
 # rag-app/rag_app/api.py
 import uuid
+import tempfile
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
 from sse_starlette.sse import EventSourceResponse
@@ -29,7 +30,7 @@ async def upload_document(
     namespace: str = Query(DEFAULT_NAMESPACE),
 ):
     content = await file.read()
-    tmp_path = Path(f"/tmp/{uuid.uuid4().hex}_{file.filename}")
+    tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4().hex}_{file.filename}"
     tmp_path.write_bytes(content)
     try:
         from rag_core.ingestion.pipeline import ingest
