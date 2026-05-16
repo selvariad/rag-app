@@ -25,6 +25,15 @@ def _is_htmx(request: Request | None) -> bool:
     return request.headers.get("HX-Request") == "true"
 
 
+async def _parse_body(req: Request) -> dict:
+    """Parse request body as JSON or form-data, returning a dict."""
+    content_type = req.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return await req.json()
+    form = await req.form()
+    return dict(form)
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
@@ -65,7 +74,7 @@ async def upload_document(
 
 @router.get("/api/documents")
 async def list_documents(namespace: str = Query(DEFAULT_NAMESPACE)):
-    return []
+    return await get_indexer().list_sources(namespace)
 
 
 @router.delete("/api/documents/{source_id}")
@@ -81,22 +90,23 @@ async def document_status(source_id: str, namespace: str = Query(DEFAULT_NAMESPA
 
 
 @router.post("/api/query")
-async def query(request: dict, req: Request = None):
-    if "question" not in request:
+async def query(req: Request):
+    body = await _parse_body(req)
+    if "question" not in body:
         raise HTTPException(status_code=422, detail="Field 'question' is required")
-    question = request["question"]
+    question = body["question"]
     filters = None
-    if "filters" in request and request["filters"]:
-        f = request["filters"]
+    if "filters" in body and body["filters"]:
+        f = body["filters"]
         filters = MetadataFilter(**f)
 
     retrieval_query = RetrievalQuery(
         text=question,
-        namespace=request.get("namespace", DEFAULT_NAMESPACE),
+        namespace=body.get("namespace", DEFAULT_NAMESPACE),
         filters=filters,
     )
 
-    conversation_id = request.get("conversation_id", "default")
+    conversation_id = body.get("conversation_id", "default")
     store = get_conversation_store()
 
     graph = build_rag_graph(get_retriever(), get_model())
@@ -177,27 +187,28 @@ async def get_settings():
 
 
 @router.post("/api/settings")
-async def save_settings(request: dict):
+async def save_settings(req: Request):
     import yaml
+    body = await _parse_body(req)
     cfg = get_config()
     config_path = Path("config.yaml")
 
-    if "llm_provider" in request:
-        cfg.llm.provider = request["llm_provider"]
-    if "llm_model" in request:
-        cfg.llm.model = request["llm_model"]
-    if "llm_api_key" in request and request["llm_api_key"] and not request["llm_api_key"].endswith("..."):
-        cfg.llm.api_key = request["llm_api_key"]
-    if "llm_base_url" in request:
-        cfg.llm.base_url = request["llm_base_url"]
-    if "embedding_provider" in request:
-        cfg.embedding.provider = request["embedding_provider"]
-    if "embedding_model" in request:
-        cfg.embedding.model = request["embedding_model"]
-    if "embedding_api_key" in request and request["embedding_api_key"] and not request["embedding_api_key"].endswith("..."):
-        cfg.embedding.api_key = request["embedding_api_key"]
-    if "reranker_enabled" in request:
-        cfg.reranker.enabled = request["reranker_enabled"] in (True, "true", "on")
+    if "llm_provider" in body:
+        cfg.llm.provider = body["llm_provider"]
+    if "llm_model" in body:
+        cfg.llm.model = body["llm_model"]
+    if "llm_api_key" in body and body["llm_api_key"] and not body["llm_api_key"].endswith("..."):
+        cfg.llm.api_key = body["llm_api_key"]
+    if "llm_base_url" in body:
+        cfg.llm.base_url = body["llm_base_url"]
+    if "embedding_provider" in body:
+        cfg.embedding.provider = body["embedding_provider"]
+    if "embedding_model" in body:
+        cfg.embedding.model = body["embedding_model"]
+    if "embedding_api_key" in body and body["embedding_api_key"] and not body["embedding_api_key"].endswith("..."):
+        cfg.embedding.api_key = body["embedding_api_key"]
+    if "reranker_enabled" in body:
+        cfg.reranker.enabled = body["reranker_enabled"] in (True, "true", "on")
 
     raw = {
         "namespace": cfg.namespace,
