@@ -140,21 +140,52 @@ async def query(req: Request):
 
 
 @router.post("/api/query/stream")
-async def query_stream(request: dict):
-    async def event_generator():
-        question = request["question"]
-        model = get_model()
-        graph = build_rag_graph(get_retriever(), model)
-        state: RAGState = {"question": question}
-        result = await graph.ainvoke(state)
-        answer = result.get("answer", "")
-        chunks = result.get("chunks", [])
+async def query_stream(req: Request):
+    body = await _parse_body(req)
+    question = body.get("question", "")
+    conversation_id = body.get("conversation_id", "default")
 
-        for source in chunks:
-            yield {"event": "source", "data": source.content[:200]}
+    async def event_generator():
+        graph = build_rag_graph(get_retriever(), get_model())
+        store = get_conversation_store()
+        retrieval_query = RetrievalQuery(
+            text=question,
+            namespace=body.get("namespace", DEFAULT_NAMESPACE),
+        )
+        state: RAGState = {"question": question, "retrieval_query": retrieval_query}
+        answer = ""
+        chunks: list = []
+
+        # Stream node-by-node progress using astream
+        node_labels = {
+            "rewrite": "Rewriting query...",
+            "retrieve": "Searching documents...",
+            "generate": "Generating answer...",
+            "check": "Verifying accuracy...",
+        }
+        try:
+            async for chunk in graph.astream(state):
+                for node_name, node_data in chunk.items():
+                    label = node_labels.get(node_name, node_name)
+                    yield {"event": "step", "data": label}
+                    if node_name == "retrieve" and "chunks" in node_data:
+                        chunks = node_data["chunks"]
+                        for c in chunks[:5]:
+                            yield {"event": "source", "data": c.content[:150]}
+                    if node_name == "generate" and "answer" in node_data:
+                        answer = node_data.get("answer", "")
+        except Exception:
+            yield {"event": "error", "data": "Query failed. Check your LLM configuration."}
+            return
+
+        # Stream answer characters for typewriter effect
         for char in answer:
             yield {"event": "token", "data": char}
         yield {"event": "done", "data": ""}
+
+        # Save to conversation
+        store.add(conversation_id, Message(role="user", content=question))
+        store.add(conversation_id, Message(role="assistant", content=answer))
 
     return EventSourceResponse(event_generator())
 

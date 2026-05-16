@@ -31,6 +31,13 @@ async def index(request: Request):
     return HTMLResponse(template.render(**ctx))
 
 
+@ui_router.get("/documents", response_class=HTMLResponse)
+async def documents_page(request: Request):
+    ctx = _config_context()
+    template = _jinja.get_template("documents.html")
+    return HTMLResponse(template.render(**ctx))
+
+
 @ui_router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     ctx = _config_context()

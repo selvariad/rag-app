@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documents — RAG Enterprise Assistant</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="sidebar-nav">
+  <div class="nav-brand">
+    <div class="brand-icon">R</div>
+    <span class="brand-text">RAG</span>
+  </div>
+  <a href="/" class="nav-item" data-page="chat">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span>Chat</span>
+  </a>
+  <a href="/documents" class="nav-item active" data-page="documents">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <span>Documents</span>
+  </a>
+  <div class="nav-footer">
+    <span class="badge model-badge">{{ llm_provider }}/{{ llm_model }}</span>
+  </div>
+</nav>
+
+<main class="main-content">
+  <div class="docs-page">
+    <div class="docs-header">
+      <h2>Document Library</h2>
+      <p>Manage your indexed documents. Upload new files, view chunks, or remove outdated documents.</p>
+    </div>
+
+    <div class="upload-zone" id="upload-zone">
+      <div class="upload-prompt">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Drop files here or click to upload</p>
+        <small>PDF, Word, Markdown, TXT, HTML</small>
+      </div>
+      <input type="file" id="file-input" multiple accept=".pdf,.docx,.md,.txt,.html,.htm" hidden>
+      <div id="upload-status" class="upload-status"></div>
+    </div>
+
+    <div class="docs-table-wrap">
+      <table class="docs-table" id="docs-table">
+        <thead><tr><th>File</th><th>Type</th><th>Chunks</th><th></th></tr></thead>
+        <tbody id="docs-tbody">
+          <tr class="empty-row"><td colspan="4">No documents indexed. Upload your first file above.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+(function() {
+  const fileInput = document.getElementById('file-input');
+  const uploadZone = document.getElementById('upload-zone');
+  const uploadStatus = document.getElementById('upload-status');
+  const tbody = document.getElementById('docs-tbody');
+
+  uploadZone.addEventListener('click', () => fileInput.click());
+  uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    uploadFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+  async function uploadFiles(files) {
+    for (const file of files) {
+      uploadStatus.innerHTML = '<div class="upload-progress"><div class="spinner"></div>Uploading ' + file.name + '...</div>';
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const resp = await fetch('/api/documents', {method:'POST', body: form});
+        const data = await resp.json();
+        if (data.status === 'duplicate') {
+          uploadStatus.innerHTML = '<div class="status-msg status-warn">' + file.name + ' is already indexed (skipped)</div>';
+        } else {
+          uploadStatus.innerHTML = '<div class="status-msg status-ok">' + file.name + ' &mdash; ' + data.chunk_count + ' chunks indexed</div>';
+        }
+      } catch(err) {
+        uploadStatus.innerHTML = '<div class="status-msg status-err">Upload failed: ' + err.message + '</div>';
+      }
+      fileInput.value = '';
+      await loadDocs();
+      setTimeout(() => { if (uploadStatus.firstChild) uploadStatus.firstChild.style.opacity = '0'; }, 3000);
+    }
+  }
+
+  async function loadDocs() {
+    try {
+      const resp = await fetch('/api/documents');
+      const docs = await resp.json();
+      tbody.innerHTML = '';
+      if (docs.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No documents indexed. Upload your first file above.</td></tr>';
+        return;
+      }
+      docs.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td><span class="doc-name">' + escapeHtml(d.filename || d.source_id) + '</span></td>' +
+          '<td><span class="type-tag">' + (d.file_type || '?') + '</span></td>' +
+          '<td>' + d.chunk_count + '</td>' +
+          '<td><button class="btn-sm btn-danger" onclick="delDoc(\'' + d.source_id + '\')">Delete</button></td>';
+        tbody.appendChild(tr);
+      });
+    } catch(e) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Failed to load documents.</td></tr>';
+    }
+  }
+
+  window.delDoc = async function(sourceId) {
+    if (!confirm('Delete this document and all its chunks?')) return;
+    await fetch('/api/documents/' + sourceId, {method:'DELETE'});
+    await loadDocs();
+  };
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  loadDocs();
+})();
+</script>
+</body>
+</html>
