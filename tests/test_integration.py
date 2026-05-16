@@ -1,11 +1,17 @@
 # rag-app/tests/test_integration.py
 import tempfile
 import os
+import uuid
 import pytest
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from rag_app.app import create_app
 from rag_app.config import AppConfig
+
+needs_llm = pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set — set it to run integration tests that call the LLM",
+)
 
 
 @pytest.fixture
@@ -15,11 +21,13 @@ def app():
 
 
 @pytest.mark.asyncio
+@needs_llm
 async def test_full_upload_query_delete_flow(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Create a test file
-        content = "PTO Policy: Employees receive 15 days of paid time off per calendar year."
+        # Create a test file with unique content to avoid hash collision
+        import uuid
+        content = f"PTO Policy: Employees receive 15 days of paid time off per calendar year. (test_id: {uuid.uuid4().hex})"
         tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
         tmp.write(content.encode())
         tmp.close()
