@@ -1,0 +1,32 @@
+namespace: "default"
+
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  api_key: "${LLM_API_KEY}"
+  base_url: ""
+
+embedding:
+  provider: "local"
+  model: "BAAI/bge-m3"
+  api_key: "${EMBEDDING_API_KEY}"
+
+reranker:
+  enabled: false
+
+chromadb:
+  persist_dir: "./chroma_db"
+  collection_name: "documents"
+
+redis:
+  url: "redis://localhost:6379"
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+langfuse:
+  enabled: false
+  public_key: ""
+  secret_key: ""
+  host: "http://localhost:3000"
