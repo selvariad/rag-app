@@ -13,7 +13,7 @@ from rag_core.types import (
 from rag_app.graph import build_rag_graph, RAGState
 from rag_app.deps import (
     get_retriever, get_indexer, get_embedder, get_model,
-    get_conversation_store, get_config,
+    get_conversation_store, get_config, get_checkpointer,
 )
 
 router = APIRouter()
@@ -109,11 +109,16 @@ async def query(req: Request):
     conversation_id = body.get("conversation_id", "default")
     store = get_conversation_store()
 
-    graph = build_rag_graph(get_retriever(), get_model())
+    graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
     trace_id = uuid.uuid4().hex
 
     state: RAGState = {"question": question, "retrieval_query": retrieval_query}
-    result = await graph.ainvoke(state)
+    thread_id = f"{conversation_id}:{uuid.uuid4().hex}"
+    config = {
+        "callbacks": _get_callbacks(),
+        "configurable": {"thread_id": thread_id},
+    }
+    result = await graph.ainvoke(state, config)
 
     answer = result.get("answer", "I cannot confidently answer this question based on the available documents.")
     chunks = result.get("chunks", [])
@@ -146,7 +151,10 @@ async def query_stream(req: Request):
     conversation_id = body.get("conversation_id", "default")
 
     async def event_generator():
-        graph = build_rag_graph(get_retriever(), get_model())
+        # Send connected event immediately so frontend knows stream is alive
+        yield {"event": "connected", "data": ""}
+
+        graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
         store = get_conversation_store()
         retrieval_query = RetrievalQuery(
             text=question,
@@ -164,7 +172,11 @@ async def query_stream(req: Request):
             "check": "Verifying accuracy...",
         }
         try:
-            async for chunk in graph.astream(state):
+            stream_config = {
+                "callbacks": _get_callbacks(),
+                "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
+            }
+            async for chunk in graph.astream(state, stream_config):
                 for node_name, node_data in chunk.items():
                     label = node_labels.get(node_name, node_name)
                     yield {"event": "step", "data": label}
@@ -259,6 +271,17 @@ async def save_settings(req: Request):
             "persist_dir": cfg.chromadb.persist_dir,
             "collection_name": cfg.chromadb.collection_name,
         },
+        "vector_store": {
+            "backend": cfg.vector_store.backend,
+            "chromadb": {
+                "persist_dir": cfg.vector_store.chromadb.persist_dir,
+                "collection_name": cfg.vector_store.chromadb.collection_name,
+            },
+            "qdrant": {
+                "url": cfg.vector_store.qdrant.url,
+                "collection_name": cfg.vector_store.qdrant.collection_name,
+            },
+        },
         "redis": {"url": cfg.redis.url},
         "server": {"host": cfg.server.host, "port": cfg.server.port},
         "langfuse": {
@@ -270,3 +293,15 @@ async def save_settings(req: Request):
     }
     config_path.write_text(yaml.dump(raw, default_flow_style=False), encoding="utf-8")
     return HTMLResponse("<span class=\"save-ok\">Saved. Restart to apply LLM changes.</span>")
+
+
+def _get_callbacks():
+    """Return LangFuse callback handler if enabled in config, else empty list."""
+    try:
+        cfg = get_config()
+        if cfg.langfuse.enabled:
+            from langfuse.callback import CallbackHandler
+            return [CallbackHandler()]
+    except Exception:
+        pass
+    return []

@@ -13,10 +13,11 @@ _indexer = None
 _embedder = None
 _model = None
 _conversation_store = None
+_checkpointer = None
 
 
 def init(config: AppConfig):
-    global _config, _retriever, _indexer, _embedder, _model, _conversation_store
+    global _config, _retriever, _indexer, _embedder, _model, _conversation_store, _checkpointer
     _config = config
 
     if config.embedding.provider == "openai":
@@ -24,16 +25,23 @@ def init(config: AppConfig):
     else:
         _embedder = LocalEmbedder(model_name=config.embedding.model)
 
-    _indexer = ChromaIndexer(
-        persist_dir=config.chromadb.persist_dir,
-        collection_name=config.chromadb.collection_name,
-    )
-    _retriever = HybridRetriever(
-        embedder=_embedder,
-        persist_dir=config.chromadb.persist_dir,
-        collection_name=config.chromadb.collection_name,
-        use_reranker=config.reranker.enabled,
-    )
+    vs = config.vector_store
+    if vs.backend == "qdrant":
+        raise NotImplementedError(
+            "Qdrant backend is not yet implemented in rag-core. "
+            "Set vector_store.backend to 'chromadb' to use the default backend."
+        )
+    else:
+        _indexer = ChromaIndexer(
+            persist_dir=vs.chromadb.persist_dir,
+            collection_name=vs.chromadb.collection_name,
+        )
+        _retriever = HybridRetriever(
+            embedder=_embedder,
+            persist_dir=vs.chromadb.persist_dir,
+            collection_name=vs.chromadb.collection_name,
+            use_reranker=config.reranker.enabled,
+        )
 
     _model = LangChainChatModel(
         provider=config.llm.provider,
@@ -77,3 +85,12 @@ def set_model(model):
 def get_conversation_store():
     assert _conversation_store is not None
     return _conversation_store
+
+
+def set_checkpointer(cp):
+    global _checkpointer
+    _checkpointer = cp
+
+
+def get_checkpointer():
+    return _checkpointer

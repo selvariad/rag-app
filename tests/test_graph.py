@@ -48,7 +48,7 @@ async def test_graph_basic_flow():
     graph = build_rag_graph(retriever, model)
 
     state: RAGState = {"question": "What is the PTO policy?"}
-    result = await graph.ainvoke(state)
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test"}})
 
     assert "answer" in result
     assert "PTO" in result["answer"]
@@ -71,7 +71,7 @@ async def test_graph_with_metadata_filter():
             filters=MetadataFilter(field="dept", op="eq", value="HR"),
         ),
     }
-    result = await graph.ainvoke(state)
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test"}})
     assert retriever.last_query.filters is not None
     assert retriever.last_query.filters.field == "dept"
 

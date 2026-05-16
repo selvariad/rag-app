@@ -3,7 +3,7 @@ import tempfile
 import pytest
 from httpx import AsyncClient, ASGITransport
 from rag_app.app import create_app
-from rag_app.config import AppConfig, ChromaDBConfig
+from rag_app.config import AppConfig, ChromaDBConfig, VectorStoreConfig
 from rag_app import deps
 from rag_core.types import Message
 
@@ -27,12 +27,11 @@ class FakeModel:
 @pytest.fixture
 def app():
     tmpdir = tempfile.mkdtemp()
+    chroma_cfg = ChromaDBConfig(persist_dir=tmpdir, collection_name="test_documents")
     cfg = AppConfig(
         namespace="default",
-        chromadb=ChromaDBConfig(
-            persist_dir=tmpdir,
-            collection_name="test_documents",
-        ),
+        chromadb=chroma_cfg,
+        vector_store=VectorStoreConfig(backend="chromadb", chromadb=chroma_cfg),
     )
     try:
         app_instance = create_app(cfg)

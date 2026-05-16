@@ -1,6 +1,14 @@
 chromadb:
   collection_name: documents
   persist_dir: ./chroma_db
+vector_store:
+  backend: chromadb
+  chromadb:
+    persist_dir: ./chroma_db
+    collection_name: documents
+  qdrant:
+    url: http://localhost:6333
+    collection_name: documents
 embedding:
   api_key: ${EMBEDDING_API_KEY}
   model: BAAI/bge-m3
@@ -12,7 +20,7 @@ langfuse:
   secret_key: ''
 llm:
   api_key: 
-  base_url: ''
+  base_url: 
   model: deepseek-chat
   provider: deepseek
 namespace: default

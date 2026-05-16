@@ -25,6 +25,10 @@ chroma_db/
 # Misc
 .DS_Store
 
+# App runtime data
+checkpoints.db*
+.superpowers/
+
 # Virtual environment
 venv/
 .venv/

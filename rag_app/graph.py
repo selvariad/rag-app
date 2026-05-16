@@ -22,7 +22,7 @@ class RAGState(TypedDict):
     rewrite_count: NotRequired[int]
 
 
-def build_rag_graph(retriever: Retriever, model: ChatModel) -> StateGraph:
+def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -> StateGraph:
     graph = StateGraph(RAGState)
 
     graph.add_node("rewrite", rewrite_query_node(model))
@@ -40,7 +40,7 @@ def build_rag_graph(retriever: Retriever, model: ChatModel) -> StateGraph:
         "end": END,
     })
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 def rewrite_query_node(model: ChatModel):
@@ -49,8 +49,8 @@ def rewrite_query_node(model: ChatModel):
         question = state["question"]
         retrieval_query = state.get("retrieval_query")
 
-        if retrieval_query is None:
-            q = RetrievalQuery(text=question)
+        if retrieval_query is None or rewrite_count == 1:
+            q = retrieval_query or RetrievalQuery(text=question)
         else:
             prompt = (
                 f"The previous search for '{question}' returned irrelevant results. "

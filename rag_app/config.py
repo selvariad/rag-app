@@ -32,6 +32,19 @@ class ChromaDBConfig:
 
 
 @dataclass
+class QdrantConfig:
+    url: str = "http://localhost:6333"
+    collection_name: str = "documents"
+
+
+@dataclass
+class VectorStoreConfig:
+    backend: str = "chromadb"  # chromadb | qdrant
+    chromadb: ChromaDBConfig = field(default_factory=ChromaDBConfig)
+    qdrant: QdrantConfig = field(default_factory=QdrantConfig)
+
+
+@dataclass
 class RedisConfig:
     url: str = "redis://localhost:6379"
 
@@ -57,6 +70,7 @@ class AppConfig:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     reranker: RerankerConfig = field(default_factory=RerankerConfig)
     chromadb: ChromaDBConfig = field(default_factory=ChromaDBConfig)
+    vector_store: VectorStoreConfig = field(default_factory=VectorStoreConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     langfuse: LangFuseConfig = field(default_factory=LangFuseConfig)
@@ -89,6 +103,12 @@ def load_config(path: str) -> AppConfig:
     embedding = _build(EmbeddingConfig, raw.get("embedding", {}))
     reranker = _build(RerankerConfig, raw.get("reranker", {}))
     chromadb = _build(ChromaDBConfig, raw.get("chromadb", {}))
+    qdrant = _build(QdrantConfig, raw.get("vector_store", {}).get("qdrant", {}))
+    vector_store = VectorStoreConfig(
+        backend=raw.get("vector_store", {}).get("backend", "chromadb"),
+        chromadb=chromadb,
+        qdrant=qdrant,
+    )
     redis = _build(RedisConfig, raw.get("redis", {}))
     server = _build(ServerConfig, raw.get("server", {}))
     langfuse = _build(LangFuseConfig, raw.get("langfuse", {}))
@@ -96,5 +116,6 @@ def load_config(path: str) -> AppConfig:
     return AppConfig(
         namespace=raw.get("namespace", "default"),
         llm=llm, embedding=embedding, reranker=reranker,
-        chromadb=chromadb, redis=redis, server=server, langfuse=langfuse,
+        chromadb=chromadb, vector_store=vector_store,
+        redis=redis, server=server, langfuse=langfuse,
     )
