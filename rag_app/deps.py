@@ -19,19 +19,21 @@ def init(config: AppConfig):
     global _config, _retriever, _indexer, _embedder, _model, _conversation_store
     _config = config
 
-    _retriever = HybridRetriever(
-        persist_dir=config.chromadb.persist_dir,
-        collection_name=config.chromadb.collection_name,
-        use_reranker=config.reranker.enabled,
-    )
-    _indexer = ChromaIndexer(
-        persist_dir=config.chromadb.persist_dir,
-        collection_name=config.chromadb.collection_name,
-    )
     if config.embedding.provider == "openai":
         _embedder = OpenAIEmbedder(model=config.embedding.model, api_key=config.embedding.api_key)
     else:
         _embedder = LocalEmbedder(model_name=config.embedding.model)
+
+    _indexer = ChromaIndexer(
+        persist_dir=config.chromadb.persist_dir,
+        collection_name=config.chromadb.collection_name,
+    )
+    _retriever = HybridRetriever(
+        embedder=_embedder,
+        persist_dir=config.chromadb.persist_dir,
+        collection_name=config.chromadb.collection_name,
+        use_reranker=config.reranker.enabled,
+    )
 
     _model = LangChainChatModel(
         provider=config.llm.provider,
