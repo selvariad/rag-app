@@ -29,8 +29,8 @@
   <main class="chat-area">
     <div class="chat-header">
       <span>RAG Assistant</span>
+      <span class="badge model-badge">{{ llm_provider }} / {{ llm_model }}</span>
       <a href="/settings" class="btn settings-btn" style="margin-left:auto;">Settings</a>
-      <span id="namespace-badge" class="badge">default</span>
     </div>
     <div class="chat-messages" id="chat-messages">
       <div class="message system">

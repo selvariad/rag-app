@@ -20,23 +20,22 @@
         <div class="form-row">
           <label>Provider</label>
           <select name="llm_provider" class="form-select">
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic (Claude)</option>
-            <option value="deepseek">DeepSeek</option>
-            <option value="zhipu">Zhipu (GLM)</option>
+            {% for p in [("openai","OpenAI"), ("anthropic","Anthropic (Claude)"), ("deepseek","DeepSeek"), ("zhipu","Zhipu (GLM)")] %}
+            <option value="{{ p[0] }}" {% if p[0] == llm_provider %}selected{% endif %}>{{ p[1] }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="form-row">
           <label>Model</label>
-          <input name="llm_model" class="form-input" placeholder="gpt-4o-mini">
+          <input name="llm_model" class="form-input" value="{{ llm_model }}">
         </div>
         <div class="form-row">
           <label>API Key</label>
-          <input name="llm_api_key" type="password" class="form-input" placeholder="sk-...">
+          <input name="llm_api_key" type="password" class="form-input" placeholder="sk-..." autocomplete="off">
         </div>
         <div class="form-row">
           <label>Base URL <small>(optional)</small></label>
-          <input name="llm_base_url" class="form-input" placeholder="https://api.openai.com/v1">
+          <input name="llm_base_url" class="form-input" value="{{ llm_base_url }}" placeholder="https://api.openai.com/v1">
         </div>
       </fieldset>
 
@@ -45,17 +44,17 @@
         <div class="form-row">
           <label>Provider</label>
           <select name="embedding_provider" class="form-select">
-            <option value="local">Local (BGE-M3)</option>
-            <option value="openai">OpenAI</option>
+            <option value="local" {% if embedding_provider == "local" %}selected{% endif %}>Local (BGE-M3)</option>
+            <option value="openai" {% if embedding_provider == "openai" %}selected{% endif %}>OpenAI</option>
           </select>
         </div>
         <div class="form-row">
           <label>Model</label>
-          <input name="embedding_model" class="form-input" placeholder="BAAI/bge-m3">
+          <input name="embedding_model" class="form-input" value="{{ embedding_model }}" placeholder="BAAI/bge-m3">
         </div>
         <div class="form-row">
           <label>API Key <small>(only for OpenAI)</small></label>
-          <input name="embedding_api_key" type="password" class="form-input" placeholder="sk-...">
+          <input name="embedding_api_key" type="password" class="form-input" placeholder="sk-..." autocomplete="off">
         </div>
       </fieldset>
 
@@ -64,7 +63,7 @@
         <div class="form-row">
           <label>Enable cross-encoder reranker</label>
           <label class="switch">
-            <input type="checkbox" name="reranker_enabled" value="true">
+            <input type="checkbox" name="reranker_enabled" value="true" {% if reranker_enabled %}checked{% endif %}>
             <span class="slider"></span>
           </label>
         </div>
