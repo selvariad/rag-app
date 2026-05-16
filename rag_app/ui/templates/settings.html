@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings — RAG Enterprise Assistant</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="settings-page">
+  <div class="settings-card">
+    <div class="settings-header">
+      <h2>Configuration</h2>
+      <a href="/" class="btn">Back to Chat</a>
+    </div>
+
+    <form hx-post="/api/settings" hx-target="#save-status" hx-swap="innerHTML">
+      <fieldset class="config-section">
+        <legend>LLM</legend>
+        <div class="form-row">
+          <label>Provider</label>
+          <select name="llm_provider" class="form-select">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="zhipu">Zhipu (GLM)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Model</label>
+          <input name="llm_model" class="form-input" placeholder="gpt-4o-mini">
+        </div>
+        <div class="form-row">
+          <label>API Key</label>
+          <input name="llm_api_key" type="password" class="form-input" placeholder="sk-...">
+        </div>
+        <div class="form-row">
+          <label>Base URL <small>(optional)</small></label>
+          <input name="llm_base_url" class="form-input" placeholder="https://api.openai.com/v1">
+        </div>
+      </fieldset>
+
+      <fieldset class="config-section">
+        <legend>Embedding</legend>
+        <div class="form-row">
+          <label>Provider</label>
+          <select name="embedding_provider" class="form-select">
+            <option value="local">Local (BGE-M3)</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Model</label>
+          <input name="embedding_model" class="form-input" placeholder="BAAI/bge-m3">
+        </div>
+        <div class="form-row">
+          <label>API Key <small>(only for OpenAI)</small></label>
+          <input name="embedding_api_key" type="password" class="form-input" placeholder="sk-...">
+        </div>
+      </fieldset>
+
+      <fieldset class="config-section">
+        <legend>Reranker</legend>
+        <div class="form-row">
+          <label>Enable cross-encoder reranker</label>
+          <label class="switch">
+            <input type="checkbox" name="reranker_enabled" value="true">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+        <span id="save-status"></span>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

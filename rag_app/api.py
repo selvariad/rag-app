@@ -2,7 +2,8 @@
 import uuid
 import tempfile
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Query
+from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
 from rag_core.types import (
@@ -18,6 +19,12 @@ from rag_app.deps import (
 router = APIRouter()
 
 
+def _is_htmx(request: Request | None) -> bool:
+    if request is None:
+        return False
+    return request.headers.get("HX-Request") == "true"
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
@@ -28,6 +35,7 @@ async def upload_document(
     file: UploadFile = File(...),
     force: bool = Query(False),
     namespace: str = Query(DEFAULT_NAMESPACE),
+    request: Request = None,
 ):
     content = await file.read()
     tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4().hex}_{file.filename}"
@@ -41,6 +49,14 @@ async def upload_document(
             namespace=namespace,
             force=force,
         )
+        if _is_htmx(request):
+            status_class = "success" if result.status in ("success", "updated") else "duplicate"
+            icon = "✓" if status_class == "success" else "⚠"
+            msg = f"Indexed {result.chunk_count} chunks" if status_class == "success" else "File already indexed (skipped)"
+            return HTMLResponse(f"""<div class="upload-result upload-{status_class}">
+<span class="upload-icon">{icon}</span>
+<div><strong>{file.filename}</strong><br><small>{msg}</small></div>
+</div>""")
         return {"job_id": result.source_id, "status": result.status, "chunk_count": result.chunk_count}
     finally:
         if tmp_path.exists():
@@ -65,7 +81,7 @@ async def document_status(source_id: str, namespace: str = Query(DEFAULT_NAMESPA
 
 
 @router.post("/api/query")
-async def query(request: dict):
+async def query(request: dict, req: Request = None):
     if "question" not in request:
         raise HTTPException(status_code=422, detail="Field 'question' is required")
     question = request["question"]
@@ -94,6 +110,16 @@ async def query(request: dict):
 
     store.add(conversation_id, Message(role="user", content=question))
     store.add(conversation_id, Message(role="assistant", content=answer))
+
+    if _is_htmx(req):
+        sources_html = ""
+        if chunks:
+            sources_html = "<div class=\"sources\">" + "".join(
+                f"<span class=\"source-chip\" title=\"{c.content[:100]}\">\U0001F4C4 {c.source_id[:12]}</span>"
+                for c in chunks[:5]
+            ) + "</div>"
+        return HTMLResponse(f"""<div class="message user"><p>{question}</p></div>
+<div class="message assistant">{answer}{sources_html}</div>""")
 
     return {
         "answer": answer,
@@ -133,3 +159,72 @@ async def get_conversation(conversation_id: str):
 @router.get("/api/trace/{trace_id}")
 async def get_trace(trace_id: str):
     return {"trace_id": trace_id, "detail": "Trace data available in LangFuse dashboard."}
+
+
+@router.get("/api/settings")
+async def get_settings():
+    cfg = get_config()
+    return {
+        "llm_provider": cfg.llm.provider,
+        "llm_model": cfg.llm.model,
+        "llm_api_key": cfg.llm.api_key[:8] + "..." if len(cfg.llm.api_key) > 8 else "",
+        "llm_base_url": cfg.llm.base_url,
+        "embedding_provider": cfg.embedding.provider,
+        "embedding_model": cfg.embedding.model,
+        "embedding_api_key": cfg.embedding.api_key[:8] + "..." if len(cfg.embedding.api_key) > 8 else "",
+        "reranker_enabled": cfg.reranker.enabled,
+    }
+
+
+@router.post("/api/settings")
+async def save_settings(request: dict):
+    import yaml
+    cfg = get_config()
+    config_path = Path("config.yaml")
+
+    if "llm_provider" in request:
+        cfg.llm.provider = request["llm_provider"]
+    if "llm_model" in request:
+        cfg.llm.model = request["llm_model"]
+    if "llm_api_key" in request and request["llm_api_key"] and not request["llm_api_key"].endswith("..."):
+        cfg.llm.api_key = request["llm_api_key"]
+    if "llm_base_url" in request:
+        cfg.llm.base_url = request["llm_base_url"]
+    if "embedding_provider" in request:
+        cfg.embedding.provider = request["embedding_provider"]
+    if "embedding_model" in request:
+        cfg.embedding.model = request["embedding_model"]
+    if "embedding_api_key" in request and request["embedding_api_key"] and not request["embedding_api_key"].endswith("..."):
+        cfg.embedding.api_key = request["embedding_api_key"]
+    if "reranker_enabled" in request:
+        cfg.reranker.enabled = request["reranker_enabled"] in (True, "true", "on")
+
+    raw = {
+        "namespace": cfg.namespace,
+        "llm": {
+            "provider": cfg.llm.provider,
+            "model": cfg.llm.model,
+            "api_key": cfg.llm.api_key,
+            "base_url": cfg.llm.base_url,
+        },
+        "embedding": {
+            "provider": cfg.embedding.provider,
+            "model": cfg.embedding.model,
+            "api_key": cfg.embedding.api_key,
+        },
+        "reranker": {"enabled": cfg.reranker.enabled},
+        "chromadb": {
+            "persist_dir": cfg.chromadb.persist_dir,
+            "collection_name": cfg.chromadb.collection_name,
+        },
+        "redis": {"url": cfg.redis.url},
+        "server": {"host": cfg.server.host, "port": cfg.server.port},
+        "langfuse": {
+            "enabled": cfg.langfuse.enabled,
+            "public_key": cfg.langfuse.public_key,
+            "secret_key": cfg.langfuse.secret_key,
+            "host": cfg.langfuse.host,
+        },
+    }
+    config_path.write_text(yaml.dump(raw, default_flow_style=False), encoding="utf-8")
+    return HTMLResponse("<span class=\"save-ok\">Saved. Restart to apply LLM changes.</span>")

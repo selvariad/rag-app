@@ -21,3 +21,42 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 .settings-select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
 .badge { background: #21262d; border: 1px solid #30363d; border-radius: 12px; padding: 2px 8px; font-size: 11px; color: #8b949e; }
 input[type="file"] { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+
+/* Upload result */
+.upload-result { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-top: 8px; border-radius: 6px; font-size: 12px; }
+.upload-success { background: #1a2e1a; border: 1px solid #238636; }
+.upload-duplicate { background: #2e2a1a; border: 1px solid #9e7a29; }
+.upload-icon { font-size: 16px; flex-shrink: 0; }
+.upload-success .upload-icon { color: #3fb950; }
+.upload-duplicate .upload-icon { color: #d29922; }
+.upload-result small { color: #8b949e; }
+
+/* Sources in chat */
+.sources { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.source-chip { background: #1a2332; border: 1px solid #30363d; border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #8b949e; }
+
+/* Settings page */
+.settings-page { display: flex; justify-content: center; padding: 40px 16px; min-height: 100vh; }
+.settings-card { width: 100%; max-width: 560px; background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 0; }
+.settings-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #21262d; }
+.settings-header h2 { font-size: 16px; font-weight: 600; }
+.config-section { border: none; padding: 16px 20px; border-bottom: 1px solid #21262d; }
+.config-section legend { font-size: 12px; font-weight: 600; text-transform: uppercase; color: #8b949e; padding: 0 4px; }
+.form-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; gap: 12px; }
+.form-row label { font-size: 13px; color: #c9d1d9; min-width: 120px; }
+.form-row label small { color: #484f58; font-weight: normal; }
+.form-input, .form-select { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; padding: 6px 10px; font-size: 13px; flex: 1; max-width: 300px; }
+.form-select { cursor: pointer; }
+.form-actions { display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
+.save-ok { color: #3fb950; font-size: 13px; }
+
+/* Toggle switch */
+.switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #30363d; border-radius: 22px; transition: 0.2s; }
+.slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #c9d1d9; border-radius: 50%; transition: 0.2s; }
+.switch input:checked + .slider { background: #238636; }
+.switch input:checked + .slider::before { transform: translateX(18px); }
+
+.settings-btn { text-decoration: none; background: #1a2332; font-size: 12px; padding: 4px 10px; }
+.btn:hover { opacity: 0.85; }
