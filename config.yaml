@@ -19,8 +19,8 @@ langfuse:
   public_key: ''
   secret_key: ''
 llm:
-  api_key: 
-  base_url: 
+  api_key: ${LLM_API_KEY}
+  base_url: ''
   model: deepseek-chat
   provider: deepseek
 namespace: default
