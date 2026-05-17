@@ -399,9 +399,14 @@ function setupDocuments() {
       try {
         const resp = await fetch('/api/documents', {method:'POST', body:form});
         const data = await resp.json();
-        us.innerHTML = data.status==='duplicate'
-          ? `<div class="status-msg status-warn">${esc(file.name)} already indexed</div>`
-          : `<div class="status-msg status-ok">${esc(file.name)} — ${data.chunk_count} chunks indexed</div>`;
+        if (data.status === 'pending') {
+          // Async job — poll for completion
+          await pollJob(data.job_id, file.name);
+        } else if (data.status === 'duplicate') {
+          us.innerHTML = `<div class="status-msg status-warn">${esc(file.name)} already indexed</div>`;
+        } else {
+          us.innerHTML = `<div class="status-msg status-ok">${esc(file.name)} — ${data.chunk_count} chunks indexed</div>`;
+        }
       } catch(err) {
         us.innerHTML = `<div class="status-msg status-err">Upload failed: ${esc(err.message)}</div>`;
       }
@@ -409,6 +414,27 @@ function setupDocuments() {
       await loadDocs();
       setTimeout(() => { if (us.firstChild) us.firstChild.style.opacity='0'; }, 4000);
     }
+  }
+
+  async function pollJob(jobId, filename) {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const r = await fetch(`/api/documents/${jobId}/status`);
+        const s = await r.json();
+        if (s.status === 'success' || s.status === 'updated') {
+          us.innerHTML = `<div class="status-msg status-ok">${esc(filename)} — ${s.chunk_count} chunks indexed</div>`;
+          return;
+        }
+        if (s.status === 'duplicate') {
+          us.innerHTML = `<div class="status-msg status-warn">${esc(filename)} already indexed</div>`;
+          return;
+        }
+        // Still pending — update spinner text
+        us.innerHTML = `<div class="upload-progress"><div class="spinner"></div>Processing ${esc(filename)}...</div>`;
+      } catch(e) { /* retry on network error */ }
+    }
+    us.innerHTML = `<div class="status-msg status-warn">${esc(filename)} is taking longer than expected. Check document list.</div>`;
   }
   loadDocs();
 }

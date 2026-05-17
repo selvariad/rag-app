@@ -23,6 +23,9 @@ router = APIRouter()
 # Trace mapping: trace_id -> {"url": str, "detail": dict}
 _trace_store: dict[str, dict] = {}
 
+# Job status store: job_id -> {"status": str, "filename": str, "chunk_count": int}
+_job_store: dict[str, dict] = {}
+
 
 def _is_htmx(request: Request | None) -> bool:
     if request is None:
@@ -67,27 +70,53 @@ async def upload_document(
                 raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
             f.write(chunk)
 
+    # Pre-compute source_id so we can poll status after async ingestion
+    from rag_core.hashing import hash_file
+    content_hash = hash_file(tmp_path)
+    source_id = f"{namespace}:{content_hash}"
+
+    # Try ARQ async ingestion first, fall back to sync
     try:
-        from rag_core.ingestion.pipeline import ingest
-        result = await ingest(
-            tmp_path,
-            get_indexer(),
-            get_embedder(),
-            namespace=namespace,
-            force=force,
+        from arq import ArqRedis
+        import redis.asyncio as aioredis
+        from rag_app.tasks import ingest_document
+
+        redis_conn = aioredis.from_url(get_config().redis.url)
+        arq_client = ArqRedis(redis_conn)
+        await arq_client.enqueue_job(
+            "ingest_document", str(tmp_path), namespace, force,
+            _job_id=source_id,  # use source_id as job_id so status checks align
         )
+        _job_store[source_id] = {"status": "pending", "filename": safe_name}
+        await redis_conn.close()
         if _is_htmx(request):
-            status_class = "success" if result.status in ("success", "updated") else "duplicate"
-            icon = "&#x2713;" if status_class == "success" else "&#x26A0;"
-            msg = f"Indexed {result.chunk_count} chunks" if status_class == "success" else "File already indexed (skipped)"
-            return HTMLResponse(f"""<div class="upload-result upload-{status_class}">
-<span class="upload-icon">{icon}</span>
-<div><strong>{html.escape(safe_name)}</strong><br><small>{msg}</small></div>
+            return HTMLResponse(f"""<div class="upload-result upload-success">
+<span class="upload-icon">&#x23F3;</span>
+<div><strong>{html.escape(safe_name)}</strong><br><small>Queued for processing...</small></div>
 </div>""")
-        return {"job_id": result.source_id, "status": result.status, "chunk_count": result.chunk_count}
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+        return {"job_id": source_id, "status": "pending"}
+    except Exception:
+        # Fallback: synchronous ingestion
+        try:
+            from rag_core.ingestion.pipeline import ingest
+            result = await ingest(
+                tmp_path, get_indexer(), get_embedder(),
+                namespace=namespace, force=force,
+            )
+            _job_store[source_id] = {
+                "status": result.status, "chunk_count": result.chunk_count,
+                "filename": safe_name,
+            }
+            if _is_htmx(request):
+                ok = result.status in ("success", "updated")
+                return HTMLResponse(f"""<div class="upload-result upload-{'success' if ok else 'duplicate'}">
+<span class="upload-icon">{'&#x2713;' if ok else '&#x26A0;'}</span>
+<div><strong>{html.escape(safe_name)}</strong><br><small>{'Indexed ' + str(result.chunk_count) + ' chunks' if ok else 'File already indexed (skipped)'}</small></div>
+</div>""")
+            return {"job_id": source_id, "status": result.status, "chunk_count": result.chunk_count}
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
 
 
 @router.get("/api/documents")
@@ -103,8 +132,20 @@ async def delete_document(source_id: str, namespace: str = Query(DEFAULT_NAMESPA
 
 @router.get("/api/documents/{source_id}/status")
 async def document_status(source_id: str, namespace: str = Query(DEFAULT_NAMESPACE)):
+    # Check in-memory job store first
+    job = _job_store.get(source_id)
+    if job and job.get("status") == "pending":
+        # Check if the document has appeared in the index (worker may have finished)
+        exists = await get_indexer().source_exists(source_id, namespace)
+        if exists:
+            job["status"] = "success"
+            return {"source_id": source_id, "status": "success", "chunk_count": job.get("chunk_count", 0)}
+        return {"source_id": source_id, "status": "pending"}
+    if job:
+        return {"source_id": source_id, "status": job.get("status"), "chunk_count": job.get("chunk_count", 0)}
+    # Check index directly
     exists = await get_indexer().source_exists(source_id, namespace)
-    return {"source_id": source_id, "exists": exists}
+    return {"source_id": source_id, "exists": exists, "status": "complete" if exists else "unknown"}
 
 
 @router.post("/api/query")
