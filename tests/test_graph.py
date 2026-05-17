@@ -192,3 +192,48 @@ async def test_chunks_irrelevant_triggers_rewrite():
     assert "answer" in result
     # With no chunks, grounded should be True (empty check short-circuits)
     assert result.get("grounded", True) is True
+
+
+@pytest.mark.asyncio
+async def test_classify_structured_query():
+    """SQL/metric keywords should trigger structured_query intent with fallback."""
+    retriever = FakeRetriever()
+    model = FakeModel()
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "how many users signed up last month"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_sql"}})
+
+    assert result.get("intended_route") == "structured_query"
+    assert "not yet implemented" in result.get("route_fallback_reason", "")
+    assert result.get("route") == "production_rag"
+
+
+@pytest.mark.asyncio
+async def test_classify_deep_research():
+    """Research/compare keywords should trigger deep_research intent with fallback."""
+    retriever = FakeRetriever()
+    model = FakeModel()
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "compare market strategy of our competitors"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_research"}})
+
+    assert result.get("intended_route") == "deep_research"
+    assert "not yet implemented" in result.get("route_fallback_reason", "")
+    assert result.get("route") == "production_rag"
+
+
+@pytest.mark.asyncio
+async def test_classify_agentic_retrieval():
+    """Debug/code keywords should trigger agentic_retrieval intent with fallback."""
+    retriever = FakeRetriever()
+    model = FakeModel()
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "debug the traceback in main.py line 42"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_agentic"}})
+
+    assert result.get("intended_route") == "agentic_retrieval"
+    assert "not yet implemented" in result.get("route_fallback_reason", "")
+    assert result.get("route") == "production_rag"

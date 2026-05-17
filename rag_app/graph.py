@@ -14,6 +14,8 @@ from rag_core.capabilities.chat_model import ChatModel
 class RAGState(TypedDict):
     question: str
     route: NotRequired[KnowledgeRoute]
+    intended_route: NotRequired[KnowledgeRoute]
+    route_fallback_reason: NotRequired[str]
     rewritten_query: NotRequired[str]
     retrieval_query: NotRequired[RetrievalQuery]
     chunks: NotRequired[list[RetrievedChunk]]
@@ -50,16 +52,17 @@ def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -
 
 def classify_route_node():
     """Heuristic route classifier based on query keywords.
-    Routes to the cheapest appropriate path; unimplemented routes return
-    a message telling the user the feature is not yet available.
+    Returns intended_route (best path), route (actual, may fall back),
+    and route_fallback_reason (explanation if fallback happens).
     """
     STRUCTURED = re.compile(
-        r"\b(SQL|table|count|SUM|AVG|GROUP BY|order|metric|dashboard|"
-        r"how many|total|average|percent|revenue|customers?|users?)\b",
+        r"\b(SQL|table|count\s+(of|the)|SUM|AVG|GROUP\s+BY|order|metric|dashboard|"
+        r"how many|how much|total|average|percent|revenue|customers?|users?)\b",
         re.IGNORECASE,
     )
     DEEP_RESEARCH = re.compile(
-        r"\b(research|compare|survey|market|strategy|report|analysis|trend)\b",
+        r"\b(research|compare|survey|market|strategy|report|analysis|trend|"
+        r"pros and cons|versus|vs\.?)\b",
         re.IGNORECASE,
     )
     AGENTIC = re.compile(
@@ -70,14 +73,24 @@ def classify_route_node():
 
     async def _classify(state: RAGState) -> dict:
         question = state["question"]
+        intended: KnowledgeRoute = "production_rag"
+        reason = ""
 
         if AGENTIC.search(question):
-            return {"route": "production_rag"}  # fallback until agentic graph exists
-        if STRUCTURED.search(question):
-            return {"route": "production_rag"}  # fallback until structured query exists
-        if DEEP_RESEARCH.search(question):
-            return {"route": "production_rag"}  # fallback until deep research exists
-        return {"route": "production_rag"}
+            intended = "agentic_retrieval"
+            reason = "agentic_retrieval not yet implemented — using RAG"
+        elif STRUCTURED.search(question):
+            intended = "structured_query"
+            reason = "structured_query not yet implemented — using RAG"
+        elif DEEP_RESEARCH.search(question):
+            intended = "deep_research"
+            reason = "deep_research not yet implemented — using RAG"
+
+        return {
+            "route": "production_rag",
+            "intended_route": intended,
+            "route_fallback_reason": reason,
+        }
     return _classify
 
 
@@ -147,13 +160,22 @@ def generate_node(model: ChatModel):
                 "Cite specific sources. If the context doesn't contain the answer, say so."
             )
 
+        fallback_note = ""
+        reason = state.get("route_fallback_reason", "")
+        if reason:
+            fallback_note = (
+                f"Note: This question is better suited for a different capability "
+                f"({reason}). Answer with RAG for now, but mention this limitation "
+                f"briefly at the start of your answer.\n\n"
+            )
+
         prompt = f"""You are an enterprise document assistant. Answer based ONLY on the provided context.
 
 When you use information from the context, cite the source inline like [Source 1] or [Source 2].
 If multiple sources support the same claim, cite all of them.
 If the context doesn't contain the answer, say so clearly without fabricating.
 
-Context:
+{fallback_note}Context:
 {context}
 
 {grounding_instruction}

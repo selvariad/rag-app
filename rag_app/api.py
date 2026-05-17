@@ -263,8 +263,11 @@ async def query_stream(req: Request):
             async for chunk in graph.astream(state, {"callbacks": stream_callbacks}):
                 for node_name, node_data in chunk.items():
                     if node_name == "classify_route":
-                        route = node_data.get("route", "production_rag")
+                        route = node_data.get("intended_route", node_data.get("route", "production_rag"))
+                        fallback = node_data.get("route_fallback_reason", "")
                         yield {"event": "route", "data": route}
+                        if fallback:
+                            yield {"event": "route_fallback", "data": fallback}
                         continue
                     label = node_labels.get(node_name, node_name)
                     yield {"event": "step", "data": label}
