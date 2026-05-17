@@ -185,10 +185,20 @@ async def query(req: Request):
     route_info = classify_route(question)
     selected_route = route_info["route"]
 
-    # Respect structured_query.enabled config
-    if selected_route == "structured_query" and not get_config().structured_query.enabled:
-        selected_route = "production_rag"
-        route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+    # Respect structured_query.enabled config + check tables exist
+    if selected_route == "structured_query":
+        if not get_config().structured_query.enabled:
+            selected_route = "production_rag"
+            route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+        else:
+            engine = get_sql_engine()
+            try:
+                tables = engine.get_tables()
+            except Exception:
+                tables = []
+            if not tables and not get_config().structured_query.ddl:
+                selected_route = "production_rag"
+                route_info["route_fallback_reason"] = "no tables configured for structured_query — using RAG"
 
     if selected_route == "structured_query":
         from rag_app.graphs.structured_query import (
@@ -273,10 +283,20 @@ async def query_stream(req: Request):
         selected_route = route_info["route"]
         cfg = get_config()
 
-        # Respect structured_query.enabled config
-        if selected_route == "structured_query" and not cfg.structured_query.enabled:
-            selected_route = "production_rag"
-            route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+        # Respect structured_query.enabled config + check tables exist
+        if selected_route == "structured_query":
+            if not cfg.structured_query.enabled:
+                selected_route = "production_rag"
+                route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+            else:
+                engine = get_sql_engine()
+                try:
+                    tables = engine.get_tables()
+                except Exception:
+                    tables = []
+                if not tables and not cfg.structured_query.ddl:
+                    selected_route = "production_rag"
+                    route_info["route_fallback_reason"] = "no tables configured for structured_query — using RAG"
 
         if selected_route == "structured_query":
             # Structured query path
