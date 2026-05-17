@@ -198,7 +198,7 @@ async def query(req: Request):
         structured_result = result.get("result")
     else:
         # Production RAG (or fallback from unimplemented route)
-        graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
+        graph = build_rag_graph(get_retriever(), get_model())
         history = store.get(conversation_id, n=6)
         rag_state: RAGState = {
             "question": question, "retrieval_query": retrieval_query,
@@ -209,11 +209,7 @@ async def query(req: Request):
         }
 
         callbacks, handler = _get_callbacks(trace_id)
-        config = {
-            "callbacks": callbacks,
-            "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
-        }
-        result = await graph.ainvoke(rag_state, config)
+        result = await graph.ainvoke(rag_state, {"callbacks": callbacks})
         _store_trace(trace_id, handler)
         answer = result.get("answer", "I cannot confidently answer this question based on the available documents.")
         chunks = result.get("chunks", [])
