@@ -1,33 +1,64 @@
 # RAG Enterprise Document Assistant
 
-Enterprise document Q&A platform — upload documents, ask questions, get answers with source citations. Built on [rag-core](https://github.com).
+Enterprise knowledge Q&A platform with multi-route architecture — not everything goes through RAG. Built on [rag-core](https://github.com/selvariad/rag-core).
 
 ## Features
 
-- **Hybrid search** — ChromaDB vector search + BM25 keyword search + optional BGE-Reranker
-- **Multi-provider LLM** — OpenAI, Anthropic, DeepSeek, Zhipu via LangChain
-- **Self-correcting RAG** — LangGraph 4-node state machine with rewrite/retrieve/generate/check loop
-- **Streaming SSE** — token-by-token response with real-time reasoning chain display
-- **Source citations** — every answer cites the documents it used
-- **Deduplication** — SHA-256 file hashing prevents duplicate ingestion
-- **Conversation memory** — multi-turn chat with thread persistence
-- **Dark/Light theme** — ChatGPT-inspired responsive UI
-- **Standalone config editor** — `config.html` for API profile management (no server needed)
+### Knowledge Routes
+
+| Route | Trigger | Status |
+|-------|---------|--------|
+| `production_rag` | Document questions, policy lookup | ✅ Production |
+| `structured_query` | SQL/table/metric questions | ✅ Production — SELECT-only, table allowlists |
+| `deep_research` | Research, comparison, analysis | 🔜 Fallback to RAG |
+| `agentic_retrieval` | Code, debug, multi-hop | 🔜 Fallback to RAG |
+| `long_context` | Single file, pasted text | 🔜 Not started |
+
+### RAG Pipeline
+
+- **Hybrid search** — ChromaDB vector + BM25 keyword + optional BGE-Reranker
+- **Self-correcting graph** — LangGraph 5-node state machine (classify → rewrite → retrieve → generate → check) with conditional retry loop
+- **Two failure modes** — distinguishes `model_strayed` (re-generate with stricter prompt) vs `chunks_irrelevant` (rewrite query)
+- **Inline citations** — model instructed to cite `[Source N]` in answers
+- **Metadata extraction** — title, date, author heuristics during ingestion
+
+### Structured Query
+
+- **SQLiteQueryEngine** — read-only SQL with table allowlist, column allowlist, auto LIMIT
+- **LLM generates SQL** from natural language + schema
+- **Safety layers**: SELECT-only, table allowlist, default LIMIT 100, validation errors returned as-is (not silently falling back)
+- **Graceful fallback**: no tables configured → RAG; execution failure → RAG; validation failure → error to user
+
+### Platform
+
+- **Streaming SSE** — token-by-token response with reasoning chain display
+- **Route-aware UI** — shows which knowledge path was selected (RAG / SQL / Agent / Research)
+- **Async ingestion** — ARQ background worker + sync fallback, 50MB limit, filename sanitization
+- **Conversation memory** — multi-turn chat with history injection into graph state
+- **Observability** — LangFuse callback wiring, trace API
+- **Dark/Light theme** — Gemini-inspired responsive UI
+- **Standalone config editor** — `config.html` multi-profile API manager with Apply button
 
 ## Quick Start
 
 ```bash
-# Install rag-core first
-cd ../rag-core && pip install -e .
+# Install rag-core
+cd ../rag-core && pip install -e ".[all]"
 
 # Install rag-app
 cd ../rag-app && pip install -e ".[dev]"
 
-# Configure API keys
-python -m rag_app.config_cli set llm.provider deepseek
-python -m rag_app.config_cli set llm.api_key sk-your-key
+# Configure (edit config.yaml or use config.html)
+# config.yaml is gitignored — copy from config.example.yaml first
+cp config.example.yaml config.yaml
 
-# Or use the visual config editor
+# Set your API key
+# Option A: environment variable
+export LLM_API_KEY=sk-your-key
+
+# Option B: edit config.yaml directly (gitignored)
+
+# Option C: use the visual config editor
 open config.html
 
 # Start
@@ -37,37 +68,20 @@ python main.py
 
 ## Configuration
 
-Edit `config.yaml` or use the CLI:
+Copy `config.example.yaml` to `config.yaml` and edit. Key sections:
 
-```bash
-python -m rag_app.config_cli show
-python -m rag_app.config_cli set llm.provider openai
-python -m rag_app.config_cli set llm.model gpt-4o-mini
-python -m rag_app.config_cli set embedding.provider openai
-```
+```yaml
+llm:
+  provider: deepseek        # openai | anthropic | deepseek | zhipu
+  model: deepseek-chat
+  api_key: ${LLM_API_KEY}   # env var or literal key
 
-Or use `config.html` — a standalone browser-based profile manager that can save multiple API configurations.
-
-## Project Structure
-
-```
-rag-app/
-├── main.py                  # Entry point
-├── config.yaml              # Runtime configuration
-├── config.html              # Standalone config editor
-├── rag_app/
-│   ├── config.py            # Config dataclasses + YAML loader
-│   ├── deps.py              # Dependency injection (global singletons)
-│   ├── graph.py             # LangGraph RAG state machine
-│   ├── api.py               # FastAPI routes
-│   ├── app.py               # App factory + lifespan
-│   ├── tasks.py             # ARQ background tasks
-│   ├── worker.py            # ARQ worker process
-│   └── ui/
-│       ├── routes.py        # Page routes
-│       ├── templates/       # Jinja2 HTML templates
-│       └── static/          # CSS + JS
-└── tests/                   # pytest test suite
+structured_query:
+  enabled: true
+  db_path: "./data.db"
+  ddl: "CREATE TABLE users (...)"   # optional schema
+  table_allowlist: []               # [] = deny all, ["users"] = whitelist
+  default_limit: 100
 ```
 
 ## API
@@ -75,14 +89,37 @@ rag-app/
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
-| `POST` | `/api/documents` | Upload document |
-| `GET` | `/api/documents` | List documents |
-| `DELETE` | `/api/documents/{id}` | Delete document |
-| `POST` | `/api/query` | Ask question (JSON response) |
-| `POST` | `/api/query/stream` | Ask question (SSE stream) |
-| `GET` | `/api/conversations/{id}` | Get conversation history |
-| `GET` | `/api/trace/{id}` | Get query trace |
+| `POST` | `/api/documents` | Upload document (ARQ async + sync fallback) |
+| `GET` | `/api/documents` | List indexed documents |
+| `DELETE` | `/api/documents/{id}` | Delete document and chunks |
+| `GET` | `/api/documents/{id}/status` | Ingestion job status |
+| `POST` | `/api/query` | Query — returns `{answer, route, route_reason, sources, trace_id}` |
+| `POST` | `/api/query/stream` | SSE stream with route/step/token/done events |
+| `GET` | `/api/conversations/{id}` | Conversation history |
+| `GET` | `/api/trace/{id}` | Trace with LangFuse deep link |
+
+## Project Structure
+
+```
+rag-app/
+├── main.py                     # Entry point
+├── config.example.yaml         # Safe config template (no secrets)
+├── config.yaml                 # Local config (gitignored)
+├── config.html                 # Standalone multi-profile API manager
+├── rag_app/
+│   ├── config.py               # Config dataclasses + YAML/env loader
+│   ├── deps.py                 # Dependency injection
+│   ├── graph.py                # RAG state machine + route classifier
+│   ├── graphs/
+│   │   └── structured_query.py # SQL generation + execution + explain
+│   ├── api.py                  # FastAPI routes with route dispatch
+│   ├── app.py                  # App factory + lifespan (checkpointer)
+│   ├── tasks.py                # ARQ background ingestion
+│   ├── worker.py               # ARQ worker process
+│   └── ui/                     # Jinja2 templates + CSS + JS
+└── tests/                      # 36 tests
+```
 
 ## Tech Stack
 
-Python 3.11+ · LangGraph · ChromaDB · FastAPI · ARQ + Redis · LangFuse · BGE-M3 · Jinja2
+Python 3.11+ · LangGraph · ChromaDB · SQLite · FastAPI · ARQ + Redis · LangFuse · BGE-M3 · Jinja2
