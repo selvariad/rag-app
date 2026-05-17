@@ -1,4 +1,5 @@
 # rag-app/rag_app/api.py
+import html
 import uuid
 import tempfile
 from pathlib import Path
@@ -64,7 +65,7 @@ async def upload_document(
             msg = f"Indexed {result.chunk_count} chunks" if status_class == "success" else "File already indexed (skipped)"
             return HTMLResponse(f"""<div class="upload-result upload-{status_class}">
 <span class="upload-icon">{icon}</span>
-<div><strong>{file.filename}</strong><br><small>{msg}</small></div>
+<div><strong>{html.escape(file.filename)}</strong><br><small>{msg}</small></div>
 </div>""")
         return {"job_id": result.source_id, "status": result.status, "chunk_count": result.chunk_count}
     finally:
@@ -130,11 +131,11 @@ async def query(req: Request):
         sources_html = ""
         if chunks:
             sources_html = "<div class=\"sources\">" + "".join(
-                f"<span class=\"source-chip\" title=\"{c.content[:100]}\">\U0001F4C4 {c.source_id[:12]}</span>"
+                f"<span class=\"source-chip\" title=\"{html.escape(c.content[:100])}\">&#x1F4C4; {html.escape(c.source_id[:12])}</span>"
                 for c in chunks[:5]
             ) + "</div>"
-        return HTMLResponse(f"""<div class="message user"><p>{question}</p></div>
-<div class="message assistant">{answer}{sources_html}</div>""")
+        return HTMLResponse(f"""<div class="message user"><p>{html.escape(question)}</p></div>
+<div class="message assistant">{html.escape(answer)}{sources_html}</div>""")
 
     return {
         "answer": answer,
@@ -148,6 +149,8 @@ async def query(req: Request):
 async def query_stream(req: Request):
     body = await _parse_body(req)
     question = body.get("question", "")
+    if not question.strip():
+        raise HTTPException(status_code=422, detail="Field 'question' is required")
     conversation_id = body.get("conversation_id", "default")
 
     async def event_generator():

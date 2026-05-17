@@ -425,7 +425,7 @@ vector_store:
     url: ${p.qdrant_url}
     collection_name: ${p.qdrant_collection}
 embedding:
-  api_key: ${p.embedding_api_key || '$${EMBEDDING_API_KEY}'}
+  api_key: ${p.embedding_api_key || '\\${EMBEDDING_API_KEY}'}
   model: ${p.embedding_model}
   provider: ${p.embedding_provider}
 langfuse:
