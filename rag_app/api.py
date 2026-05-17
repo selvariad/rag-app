@@ -77,18 +77,19 @@ async def upload_document(
 
     # Try ARQ async ingestion first, fall back to sync
     try:
-        from arq import ArqRedis
-        import redis.asyncio as aioredis
+        from arq import create_pool
+        from arq.connections import RedisSettings
         from rag_app.tasks import ingest_document
 
-        redis_conn = aioredis.from_url(get_config().redis.url)
-        arq_client = ArqRedis(redis_conn)
-        await arq_client.enqueue_job(
+        redis = await create_pool(
+            RedisSettings.from_dsn(get_config().redis.url)
+        )
+        await redis.enqueue_job(
             "ingest_document", str(tmp_path), namespace, force,
-            _job_id=source_id,  # use source_id as job_id so status checks align
+            _job_id=source_id,
         )
         _job_store[source_id] = {"status": "pending", "filename": safe_name}
-        await redis_conn.close()
+        await redis.close()
         if _is_htmx(request):
             return HTMLResponse(f"""<div class="upload-result upload-success">
 <span class="upload-icon">&#x23F3;</span>
