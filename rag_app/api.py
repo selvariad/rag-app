@@ -20,6 +20,9 @@ from rag_app.deps import (
 
 router = APIRouter()
 
+# Trace mapping: trace_id -> {"url": str, "detail": dict}
+_trace_store: dict[str, dict] = {}
+
 
 def _is_htmx(request: Request | None) -> bool:
     if request is None:
@@ -134,11 +137,13 @@ async def query(req: Request):
         "messages": history,
     }
 
+    callbacks, handler = _get_callbacks(trace_id)
     config = {
-        "callbacks": _get_callbacks(),
+        "callbacks": callbacks,
         "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
     }
     result = await graph.ainvoke(state, config)
+    _store_trace(trace_id, handler)
 
     answer = result.get("answer", "I cannot confidently answer this question based on the available documents.")
     chunks = result.get("chunks", [])
@@ -237,7 +242,17 @@ async def get_conversation(conversation_id: str):
 
 @router.get("/api/trace/{trace_id}")
 async def get_trace(trace_id: str):
-    return {"trace_id": trace_id, "detail": "Trace data available in LangFuse dashboard."}
+    stored = _trace_store.get(trace_id)
+    if stored:
+        return {
+            "trace_id": trace_id,
+            "langfuse_trace_url": stored.get("url"),
+            "langfuse_trace_id": stored.get("langfuse_trace_id"),
+        }
+    return {
+        "trace_id": trace_id,
+        "detail": "Trace not found. It may have expired or tracing is disabled.",
+    }
 
 
 @router.get("/api/settings")
@@ -321,13 +336,31 @@ async def save_settings(req: Request):
     return HTMLResponse("<span class=\"save-ok\">Saved. Restart to apply LLM changes.</span>")
 
 
-def _get_callbacks():
-    """Return LangFuse callback handler if enabled in config, else empty list."""
+def _get_callbacks(trace_id: str | None = None):
+    """Return LangFuse callback handler if enabled in config, else empty list.
+    Returns (callbacks, handler) tuple for trace URL extraction.
+    """
+    handler = None
     try:
         cfg = get_config()
         if cfg.langfuse.enabled:
             from langfuse.callback import CallbackHandler
-            return [CallbackHandler()]
+            handler = CallbackHandler(trace_id=trace_id)
+            return [handler], handler
     except Exception:
         pass
-    return []
+    return [], None
+
+
+def _store_trace(trace_id: str, handler):
+    """Extract and store trace URL/ID from LangFuse handler."""
+    cfg = get_config()
+    try:
+        langfuse_trace_id = getattr(handler, 'trace_id', None) or trace_id
+        trace_url = f"{cfg.langfuse.host.rstrip('/')}/trace/{langfuse_trace_id}"
+    except Exception:
+        trace_url = None
+    _trace_store[trace_id] = {
+        "url": trace_url,
+        "langfuse_trace_id": langfuse_trace_id if handler else None,
+    }
