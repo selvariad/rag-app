@@ -236,9 +236,6 @@ async def query_stream(req: Request):
         # Send connected event immediately so frontend knows stream is alive
         yield {"event": "connected", "data": ""}
 
-        # Route event: tells UI which knowledge path was selected
-        yield {"event": "route", "data": "production_rag"}
-
         graph = build_rag_graph(get_retriever(), get_model())
         store = get_conversation_store()
         retrieval_query = RetrievalQuery(
@@ -255,6 +252,7 @@ async def query_stream(req: Request):
 
         # Stream node-by-node progress using astream
         node_labels = {
+            "classify_route": "",
             "rewrite": "Rewriting query...",
             "retrieve": "Searching documents...",
             "generate": "Generating answer...",
@@ -264,6 +262,10 @@ async def query_stream(req: Request):
             stream_callbacks, _ = _get_callbacks()
             async for chunk in graph.astream(state, {"callbacks": stream_callbacks}):
                 for node_name, node_data in chunk.items():
+                    if node_name == "classify_route":
+                        route = node_data.get("route", "production_rag")
+                        yield {"event": "route", "data": route}
+                        continue
                     label = node_labels.get(node_name, node_name)
                     yield {"event": "step", "data": label}
                     if node_name == "retrieve" and "chunks" in node_data:

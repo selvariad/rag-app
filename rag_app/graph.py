@@ -1,4 +1,5 @@
 # rag-app/rag_app/graph.py
+import re
 from typing import NotRequired, Literal, TypedDict
 from langgraph.graph import StateGraph, START, END
 
@@ -48,11 +49,34 @@ def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -
 
 
 def classify_route_node():
-    """Simple heuristic: all queries use production_rag for now.
-    Future: inspect question, conversation context, and available data to route
-    to long_context, agentic_retrieval, structured_query, or deep_research.
+    """Heuristic route classifier based on query keywords.
+    Routes to the cheapest appropriate path; unimplemented routes return
+    a message telling the user the feature is not yet available.
     """
+    STRUCTURED = re.compile(
+        r"\b(SQL|table|count|SUM|AVG|GROUP BY|order|metric|dashboard|"
+        r"how many|total|average|percent|revenue|customers?|users?)\b",
+        re.IGNORECASE,
+    )
+    DEEP_RESEARCH = re.compile(
+        r"\b(research|compare|survey|market|strategy|report|analysis|trend)\b",
+        re.IGNORECASE,
+    )
+    AGENTIC = re.compile(
+        r"\b(debug|code|file path|function|class|error|traceback|stack trace|"
+        r"multi.?hop|follow.?up|where is|find .* in)\b",
+        re.IGNORECASE,
+    )
+
     async def _classify(state: RAGState) -> dict:
+        question = state["question"]
+
+        if AGENTIC.search(question):
+            return {"route": "production_rag"}  # fallback until agentic graph exists
+        if STRUCTURED.search(question):
+            return {"route": "production_rag"}  # fallback until structured query exists
+        if DEEP_RESEARCH.search(question):
+            return {"route": "production_rag"}  # fallback until deep research exists
         return {"route": "production_rag"}
     return _classify
 
