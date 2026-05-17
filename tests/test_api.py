@@ -94,3 +94,40 @@ async def test_conversation_persistence(app):
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) >= 1
+
+
+@pytest.mark.asyncio
+async def test_sse_stream_delivers_step_token_done(app):
+    """SSE stream should deliver step, token, and done events in order."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        events = []
+        async with client.stream(
+            "POST", "/api/query/stream",
+            json={"question": "test"},
+            timeout=30,
+        ) as resp:
+            assert resp.status_code == 200
+            buffer = ""
+            async for chunk in resp.aiter_bytes():
+                buffer += chunk.decode()
+                parts = buffer.replace("\r\n", "\n").replace("\r", "\n").split("\n\n")
+                buffer = parts.pop() or ""
+                for part in parts:
+                    if not part.strip():
+                        continue
+                    evt = None
+                    for line in part.split("\n"):
+                        if line.startswith("event:"):
+                            evt = line[6:].strip()
+                            break
+                    if evt:
+                        events.append(evt)
+
+        assert "connected" in events, f"Missing connected event in {events}"
+        assert "route" in events, f"Missing route event in {events}"
+        assert "step" in events, f"Missing step events in {events}"
+        assert "token" in events, f"Missing token events in {events}"
+        assert "done" in events, f"Missing done event in {events}"
+        # Events must arrive in correct order
+        assert events.index("connected") < events.index("route") < events.index("step") < events.index("done")

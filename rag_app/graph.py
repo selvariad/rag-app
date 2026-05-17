@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph, START, END
 
 from rag_core.types import (
     RetrievalQuery, RetrievedChunk, Message, QueryResult, DEFAULT_NAMESPACE,
+    KnowledgeRoute,
 )
 from rag_core.capabilities.retriever import Retriever
 from rag_core.capabilities.chat_model import ChatModel
@@ -11,6 +12,7 @@ from rag_core.capabilities.chat_model import ChatModel
 
 class RAGState(TypedDict):
     question: str
+    route: NotRequired[KnowledgeRoute]
     rewritten_query: NotRequired[str]
     retrieval_query: NotRequired[RetrievalQuery]
     chunks: NotRequired[list[RetrievedChunk]]
@@ -25,12 +27,14 @@ class RAGState(TypedDict):
 def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -> StateGraph:
     graph = StateGraph(RAGState)
 
+    graph.add_node("classify_route", classify_route_node())
     graph.add_node("rewrite", rewrite_query_node(model))
     graph.add_node("retrieve", retrieve_node(retriever))
     graph.add_node("generate", generate_node(model))
     graph.add_node("check", check_node(model))
 
-    graph.add_edge(START, "rewrite")
+    graph.add_edge(START, "classify_route")
+    graph.add_edge("classify_route", "rewrite")
     graph.add_edge("rewrite", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "check")
@@ -41,6 +45,16 @@ def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -
     })
 
     return graph.compile(checkpointer=checkpointer)
+
+
+def classify_route_node():
+    """Simple heuristic: all queries use production_rag for now.
+    Future: inspect question, conversation context, and available data to route
+    to long_context, agentic_retrieval, structured_query, or deep_research.
+    """
+    async def _classify(state: RAGState) -> dict:
+        return {"route": "production_rag"}
+    return _classify
 
 
 def rewrite_query_node(model: ChatModel):
@@ -110,6 +124,10 @@ def generate_node(model: ChatModel):
             )
 
         prompt = f"""You are an enterprise document assistant. Answer based ONLY on the provided context.
+
+When you use information from the context, cite the source inline like [Source 1] or [Source 2].
+If multiple sources support the same claim, cite all of them.
+If the context doesn't contain the answer, say so clearly without fabricating.
 
 Context:
 {context}

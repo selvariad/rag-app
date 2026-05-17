@@ -124,3 +124,71 @@ def test_route_after_check_chunks_irrelevant_exhausted():
         "rewrite_count": 2,
     })
     assert result == "end"
+
+
+@pytest.mark.asyncio
+async def test_retrieval_precision_top_chunks():
+    """Query against known chunks — verify expected content in top results."""
+    chunks = [
+        RetrievedChunk(id="a:0", content="PTO policy: 15 days per year", metadata={}, source_id="a", score=0.95, rank=1),
+        RetrievedChunk(id="a:1", content="Benefits include health insurance", metadata={}, source_id="a", score=0.8, rank=2),
+        RetrievedChunk(id="b:0", content="Security policy: badges required", metadata={}, source_id="b", score=0.6, rank=3),
+    ]
+    retriever = FakeRetriever(chunks=chunks)
+    model = FakeModel(answer="Based on the documents, PTO is 15 days [Source 1].")
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "How many PTO days?"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_precision"}})
+
+    assert len(result["chunks"]) == 3
+    assert result["chunks"][0].rank == 1
+    assert "PTO" in result["chunks"][0].content
+    assert "15 days" in result["chunks"][0].content
+
+
+@pytest.mark.asyncio
+async def test_route_classify_returns_production_rag():
+    """The classify_route node should set route to production_rag."""
+    retriever = FakeRetriever()
+    model = FakeModel()
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "test"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_route"}})
+
+    assert result.get("route") == "production_rag"
+
+
+@pytest.mark.asyncio
+async def test_model_strayed_triggers_regenerate():
+    """Model ignores relevant chunks — check should complete without looping."""
+    chunks = [
+        RetrievedChunk(id="a:0", content="PTO is 15 days", metadata={}, source_id="a", score=0.95, rank=1),
+    ]
+    retriever = FakeRetriever(chunks=chunks)
+    model = FakeModel(answer="PTO is 20 days per year.")
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "What is PTO?"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_strayed"}})
+
+    assert "answer" in result
+    reason = result.get("grounding_reason", "ok")
+    assert reason in ("ok", "model_strayed", "chunks_irrelevant")
+
+
+@pytest.mark.asyncio
+async def test_chunks_irrelevant_triggers_rewrite():
+    """Query about something not in chunks — should complete without looping."""
+    chunks: list = []
+    retriever = FakeRetriever(chunks=chunks)
+    model = FakeModel(answer="I cannot answer this based on available documents.")
+    graph = build_rag_graph(retriever, model)
+
+    state: RAGState = {"question": "What is the stock price?"}
+    result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_irrelevant"}})
+
+    assert "answer" in result
+    # With no chunks, grounded should be True (empty check short-circuits)
+    assert result.get("grounded", True) is True

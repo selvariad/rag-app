@@ -214,8 +214,10 @@ async def query(req: Request):
         return HTMLResponse(f"""<div class="message user"><p>{html.escape(question)}</p></div>
 <div class="message assistant">{html.escape(answer)}{sources_html}</div>""")
 
+    route = result.get("route", "production_rag")
     return {
         "answer": answer,
+        "route": route,
         "sources": [{"content": c.content, "source_id": c.source_id, "score": c.score} for c in chunks],
         "trace_id": trace_id,
         "tokens": {"prompt": 0, "completion": 0},
@@ -233,6 +235,9 @@ async def query_stream(req: Request):
     async def event_generator():
         # Send connected event immediately so frontend knows stream is alive
         yield {"event": "connected", "data": ""}
+
+        # Route event: tells UI which knowledge path was selected
+        yield {"event": "route", "data": "production_rag"}
 
         graph = build_rag_graph(get_retriever(), get_model())
         store = get_conversation_store()
