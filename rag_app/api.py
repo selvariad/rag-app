@@ -185,12 +185,20 @@ async def query(req: Request):
     route_info = classify_route(question)
     selected_route = route_info["route"]
 
+    # Respect structured_query.enabled config
+    if selected_route == "structured_query" and not get_config().structured_query.enabled:
+        selected_route = "production_rag"
+        route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+
     if selected_route == "structured_query":
         from rag_app.graphs.structured_query import (
             build_structured_query_graph, StructuredQueryState,
         )
         engine = get_sql_engine()
-        graph = build_structured_query_graph(get_model(), engine)
+        graph = build_structured_query_graph(
+            get_model(), engine,
+            table_schema=get_config().structured_query.ddl,
+        )
         state: StructuredQueryState = {"question": question, "route": "structured_query"}
         result = await graph.ainvoke(state)
         answer = result.get("answer", "Query returned no results.")
@@ -258,8 +266,55 @@ async def query_stream(req: Request):
     conversation_id = body.get("conversation_id", "default")
 
     async def event_generator():
-        # Send connected event immediately so frontend knows stream is alive
         yield {"event": "connected", "data": ""}
+
+        # Classify route first
+        route_info = classify_route(question)
+        selected_route = route_info["route"]
+        cfg = get_config()
+
+        # Respect structured_query.enabled config
+        if selected_route == "structured_query" and not cfg.structured_query.enabled:
+            selected_route = "production_rag"
+            route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+
+        if selected_route == "structured_query":
+            # Structured query path
+            from rag_app.graphs.structured_query import build_structured_query_graph
+            engine = get_sql_engine()
+            graph = build_structured_query_graph(
+                get_model(), engine, table_schema=cfg.structured_query.ddl
+            )
+            yield {"event": "route", "data": "structured_query"}
+
+            try:
+                async for chunk in graph.astream({"question": question, "route": "structured_query"}):
+                    for node_name, node_data in chunk.items():
+                        if node_name == "generate_sql":
+                            yield {"event": "step", "data": "Generating SQL..."}
+                        elif node_name == "execute_readonly":
+                            yield {"event": "step", "data": "Executing query..."}
+                        elif node_name == "explain" and "answer" in node_data:
+                            answer = node_data.get("answer", "")
+                            for char in answer:
+                                yield {"event": "token", "data": char}
+            except Exception as e:
+                import traceback, sys
+                print(f"Stream SQL error: {e}", file=sys.stderr)
+                traceback.print_exc()
+                yield {"event": "error", "data": f"SQL query failed: {e}"}
+                return
+
+            yield {"event": "done", "data": ""}
+            store = get_conversation_store()
+            store.add(conversation_id, Message(role="user", content=question))
+            store.add(conversation_id, Message(role="assistant", content=answer))
+            return
+
+        # Production RAG path
+        yield {"event": "route", "data": selected_route}
+        if route_info.get("route_fallback_reason"):
+            yield {"event": "route_fallback", "data": route_info["route_fallback_reason"]}
 
         graph = build_rag_graph(get_retriever(), get_model())
         store = get_conversation_store()
@@ -275,7 +330,6 @@ async def query_stream(req: Request):
         answer = ""
         chunks: list = []
 
-        # Stream node-by-node progress using astream
         node_labels = {
             "classify_route": "",
             "rewrite": "Rewriting query...",
