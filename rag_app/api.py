@@ -340,13 +340,13 @@ async def save_settings(req: Request):
         "llm": {
             "provider": cfg.llm.provider,
             "model": cfg.llm.model,
-            "api_key": cfg.llm.api_key,
+            "api_key": "${LLM_API_KEY}",
             "base_url": cfg.llm.base_url,
         },
         "embedding": {
             "provider": cfg.embedding.provider,
             "model": cfg.embedding.model,
-            "api_key": cfg.embedding.api_key,
+            "api_key": "${EMBEDDING_API_KEY}",
         },
         "reranker": {"enabled": cfg.reranker.enabled},
         "chromadb": {
