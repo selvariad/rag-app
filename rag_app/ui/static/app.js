@@ -27,9 +27,9 @@ function updateThemeIcons() {
 // SSEClient — Proper SSE parser
 // ──────────────────────────────────────────────
 class SSEClient {
-  constructor(url, {onStep, onSource, onToken, onDone, onError, onRoute}) {
+  constructor(url, {onStep, onSource, onToken, onDone, onError, onRoute, onRouteFallback}) {
     this._url = url;
-    this._callbacks = {onStep, onSource, onToken, onDone, onError, onRoute};
+    this._callbacks = {onStep, onSource, onToken, onDone, onError, onRoute, onRouteFallback};
     this._abort = null;
   }
 
@@ -99,6 +99,7 @@ class SSEClient {
       case 'source': this._callbacks.onSource?.(event.data); break;
       case 'token': this._callbacks.onToken?.(event.data); break;
       case 'route': this._callbacks.onRoute?.(event.data); break;
+      case 'route_fallback': this._callbacks.onRouteFallback?.(event.data); break;
       case 'error': this._callbacks.onError?.(event.data); break;
       case 'done': this._callbacks.onDone?.(); break;
     }
@@ -119,6 +120,7 @@ class ThinkingChain {
     this._sourceCount = 0;
     this._chunkCount = 0;
     this._route = 'production_rag';
+    this._fallback = '';
 
     const header = document.createElement('div');
     header.className = 'thinking-chain-header';
@@ -164,6 +166,10 @@ class ThinkingChain {
     this._route = route;
   }
 
+  setFallback(reason) {
+    this._fallback = reason;
+  }
+
   setSources(sourceCount, chunkCount) {
     this._sourceCount = sourceCount;
     this._chunkCount = chunkCount;
@@ -174,7 +180,8 @@ class ThinkingChain {
     for (const s of this._steps) { if (s.status==='pending'||s.status==='active') s.status='done'; }
     const elapsed = ((Date.now()-this._startTime)/1000).toFixed(1);
     const routeLabel = {production_rag:'RAG',long_context:'Direct',agentic_retrieval:'Agent',structured_query:'SQL',deep_research:'Research'}[this._route] || this._route;
-    this._titleEl.textContent = `${routeLabel} · ${this._sourceCount} doc${this._sourceCount!==1?'s':''} · ${this._chunkCount} source${this._chunkCount!==1?'s':''} · ${elapsed}s`;
+    const fallbackNote = this._fallback ? ' (fallback)' : '';
+    this._titleEl.textContent = `${routeLabel}${fallbackNote} · ${this._sourceCount} doc${this._sourceCount!==1?'s':''} · ${this._chunkCount} source${this._chunkCount!==1?'s':''} · ${elapsed}s`;
     this._spinnerEl.style.display = 'none';
     this._render();
     setTimeout(() => { this._el.classList.remove('expanded'); this._el.classList.add('collapsed'); }, 800);
@@ -296,6 +303,9 @@ function sendMessage(question) {
   const sse = new SSEClient('/api/query/stream', {
     onRoute(route) {
       if (_currentChain) _currentChain.setRoute(route);
+    },
+    onRouteFallback(reason) {
+      if (_currentChain) _currentChain.setFallback(reason);
     },
     onStep(data) {
       const m = {

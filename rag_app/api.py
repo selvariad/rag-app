@@ -215,9 +215,13 @@ async def query(req: Request):
 <div class="message assistant">{html.escape(answer)}{sources_html}</div>""")
 
     route = result.get("route", "production_rag")
+    intended_route = result.get("intended_route", route)
+    fallback_reason = result.get("route_fallback_reason", "")
     return {
         "answer": answer,
         "route": route,
+        "intended_route": intended_route,
+        "route_fallback_reason": fallback_reason,
         "sources": [{"content": c.content, "source_id": c.source_id, "score": c.score} for c in chunks],
         "trace_id": trace_id,
         "tokens": {"prompt": 0, "completion": 0},
