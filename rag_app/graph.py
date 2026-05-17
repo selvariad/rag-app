@@ -48,13 +48,20 @@ def rewrite_query_node(model: ChatModel):
         rewrite_count = state.get("rewrite_count", 0) + 1
         question = state["question"]
         retrieval_query = state.get("retrieval_query")
+        messages = state.get("messages", [])
 
         if retrieval_query is None or rewrite_count == 1:
             q = retrieval_query or RetrievalQuery(text=question)
         else:
+            history = "\n".join(
+                f"{m.role}: {m.content}" for m in messages[-6:]
+            ) if messages else "(no previous conversation)"
+
             prompt = (
+                f"Previous conversation:\n{history}\n\n"
                 f"The previous search for '{question}' returned irrelevant results. "
-                f"Reformulate the query to better find the information. Original: {question}"
+                f"Using the conversation context above, reformulate the query "
+                f"to better find the information. Original: {question}"
             )
             resp = await model.invoke([Message(role="user", content=prompt)])
             rewritten_text = resp.content.strip()

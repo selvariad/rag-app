@@ -1,5 +1,6 @@
 # rag-app/rag_app/api.py
 import html
+import re
 import uuid
 import tempfile
 from pathlib import Path
@@ -40,6 +41,9 @@ async def health():
     return {"status": "ok"}
 
 
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
 @router.post("/api/documents")
 async def upload_document(
     file: UploadFile = File(...),
@@ -47,9 +51,19 @@ async def upload_document(
     namespace: str = Query(DEFAULT_NAMESPACE),
     request: Request = None,
 ):
-    content = await file.read()
-    tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4().hex}_{file.filename}"
-    tmp_path.write_bytes(content)
+    safe_name = re.sub(r'[^\w.-]', '_', file.filename or "upload")
+    tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4().hex}_{safe_name}"
+
+    total = 0
+    with open(tmp_path, "wb") as f:
+        while chunk := await file.read(65536):
+            total += len(chunk)
+            if total > MAX_UPLOAD_SIZE:
+                f.close()
+                tmp_path.unlink()
+                raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+            f.write(chunk)
+
     try:
         from rag_core.ingestion.pipeline import ingest
         result = await ingest(
@@ -61,11 +75,11 @@ async def upload_document(
         )
         if _is_htmx(request):
             status_class = "success" if result.status in ("success", "updated") else "duplicate"
-            icon = "✓" if status_class == "success" else "⚠"
+            icon = "&#x2713;" if status_class == "success" else "&#x26A0;"
             msg = f"Indexed {result.chunk_count} chunks" if status_class == "success" else "File already indexed (skipped)"
             return HTMLResponse(f"""<div class="upload-result upload-{status_class}">
 <span class="upload-icon">{icon}</span>
-<div><strong>{html.escape(file.filename)}</strong><br><small>{msg}</small></div>
+<div><strong>{html.escape(safe_name)}</strong><br><small>{msg}</small></div>
 </div>""")
         return {"job_id": result.source_id, "status": result.status, "chunk_count": result.chunk_count}
     finally:
@@ -113,11 +127,16 @@ async def query(req: Request):
     graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
     trace_id = uuid.uuid4().hex
 
-    state: RAGState = {"question": question, "retrieval_query": retrieval_query}
-    thread_id = f"{conversation_id}:{uuid.uuid4().hex}"
+    # Inject conversation history into state for rewrite context
+    history = store.get(conversation_id, n=6)
+    state: RAGState = {
+        "question": question, "retrieval_query": retrieval_query,
+        "messages": history,
+    }
+
     config = {
         "callbacks": _get_callbacks(),
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
     }
     result = await graph.ainvoke(state, config)
 
@@ -163,7 +182,11 @@ async def query_stream(req: Request):
             text=question,
             namespace=body.get("namespace", DEFAULT_NAMESPACE),
         )
-        state: RAGState = {"question": question, "retrieval_query": retrieval_query}
+        history = store.get(conversation_id, n=6)
+        state: RAGState = {
+            "question": question, "retrieval_query": retrieval_query,
+            "messages": history,
+        }
         answer = ""
         chunks: list = []
 
@@ -177,7 +200,7 @@ async def query_stream(req: Request):
         try:
             stream_config = {
                 "callbacks": _get_callbacks(),
-                "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
+                "configurable": {"thread_id": conversation_id},
             }
             async for chunk in graph.astream(state, stream_config):
                 for node_name, node_data in chunk.items():
