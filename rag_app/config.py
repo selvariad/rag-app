@@ -86,7 +86,7 @@ def _resolve_env(value: str) -> str:
 
 
 def load_config(path: str) -> AppConfig:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     def _build(cls, data: dict):
