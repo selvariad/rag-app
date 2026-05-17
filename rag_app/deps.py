@@ -54,7 +54,12 @@ def init(config: AppConfig):
 
     from rag_core.capabilities.structured_query import SQLiteQueryEngine
     global _sql_engine
-    _sql_engine = SQLiteQueryEngine(db_path=config.structured_query.db_path)
+    _sql_engine = SQLiteQueryEngine(
+        db_path=config.structured_query.db_path,
+        table_allowlist=config.structured_query.table_allowlist or None,
+        column_allowlist=config.structured_query.column_allowlist or None,
+        default_limit=config.structured_query.default_limit,
+    )
     if config.structured_query.ddl:
         _sql_engine.setup_schema(config.structured_query.ddl)
 

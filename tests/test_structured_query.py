@@ -115,3 +115,29 @@ async def test_structured_query_graph_basic_flow():
     assert result.get("result") is not None
     assert result["result"].row_count == 1
     assert result["result"].rows[0][0] == 2
+
+
+@pytest.mark.asyncio
+async def test_table_allowlist_blocks_restricted_table():
+    engine = SQLiteQueryEngine(table_allowlist=["users"])
+    engine.setup_schema("CREATE TABLE users (id INTEGER); CREATE TABLE secrets (id INTEGER)")
+    engine.setup_schema("INSERT INTO users VALUES (1); INSERT INTO secrets VALUES (99)")
+
+    # Allowed table
+    result = await engine.execute_readonly(StructuredQuery(sql="SELECT * FROM users"))
+    assert result.row_count == 1
+
+    # Blocked table
+    with pytest.raises(ValueError, match="not in allowlist"):
+        await engine.execute_readonly(StructuredQuery(sql="SELECT * FROM secrets"))
+
+
+@pytest.mark.asyncio
+async def test_default_limit_applied():
+    engine = SQLiteQueryEngine(default_limit=5)
+    engine.setup_schema("CREATE TABLE t (id INTEGER)")
+    for i in range(20):
+        engine.setup_schema(f"INSERT INTO t VALUES ({i})")
+
+    result = await engine.execute_readonly(StructuredQuery(sql="SELECT * FROM t"))
+    assert result.row_count == 5  # Limited to 5

@@ -181,41 +181,51 @@ async def query(req: Request):
     store = get_conversation_store()
     trace_id = uuid.uuid4().hex
 
-    # Classify route first, then dispatch to the right graph
+    # Classify route, then try structured_query first. Fall back to RAG if unavailable or fails.
     route_info = classify_route(question)
     selected_route = route_info["route"]
+    structured_result = None
+    chunks: list = []
+    answer = ""
 
-    # Respect structured_query.enabled config + check tables exist
     if selected_route == "structured_query":
-        if not get_config().structured_query.enabled:
+        # Gate: must be enabled, have tables or DDL configured, and execute successfully
+        cfg = get_config()
+        engine = get_sql_engine()
+
+        if not cfg.structured_query.enabled:
             selected_route = "production_rag"
-            route_info["route_fallback_reason"] = "structured_query disabled in config — using RAG"
+            route_info["route_fallback_reason"] = "structured_query disabled in config"
         else:
-            engine = get_sql_engine()
             try:
                 tables = engine.get_tables()
             except Exception:
                 tables = []
-            if not tables and not get_config().structured_query.ddl:
+            if not tables and not cfg.structured_query.ddl:
                 selected_route = "production_rag"
-                route_info["route_fallback_reason"] = "no tables configured for structured_query — using RAG"
+                route_info["route_fallback_reason"] = "no tables configured for structured_query"
+            else:
+                # Try structured query
+                from rag_app.graphs.structured_query import (
+                    build_structured_query_graph, StructuredQueryState,
+                )
+                graph = build_structured_query_graph(
+                    get_model(), engine, table_schema=cfg.structured_query.ddl,
+                )
+                state: StructuredQueryState = {"question": question, "route": "structured_query"}
+                result = await graph.ainvoke(state)
+                answer = result.get("answer", "")
+                structured_result = result.get("result")
 
-    if selected_route == "structured_query":
-        from rag_app.graphs.structured_query import (
-            build_structured_query_graph, StructuredQueryState,
-        )
-        engine = get_sql_engine()
-        graph = build_structured_query_graph(
-            get_model(), engine,
-            table_schema=get_config().structured_query.ddl,
-        )
-        state: StructuredQueryState = {"question": question, "route": "structured_query"}
-        result = await graph.ainvoke(state)
-        answer = result.get("answer", "Query returned no results.")
-        chunks = []
-        structured_result = result.get("result")
-    else:
-        # Production RAG (or fallback from unimplemented route)
+                if structured_result is None or result.get("error"):
+                    # SQL failed — fall back to RAG
+                    selected_route = "production_rag"
+                    route_info["route_fallback_reason"] = (
+                        result.get("error") or "structured query returned no data"
+                    )
+
+    if selected_route != "structured_query":
+        # Production RAG (or fallback)
         graph = build_rag_graph(get_retriever(), get_model())
         history = store.get(conversation_id, n=6)
         rag_state: RAGState = {

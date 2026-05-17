@@ -54,6 +54,9 @@ class StructuredQueryConfig:
     enabled: bool = True
     db_path: str = ":memory:"
     ddl: str = ""
+    table_allowlist: list[str] = field(default_factory=list)  # empty = all allowed
+    column_allowlist: dict[str, list[str]] = field(default_factory=dict)  # table → [cols]
+    default_limit: int = 100
 
 
 @dataclass
