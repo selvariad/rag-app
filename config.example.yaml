@@ -1,6 +1,11 @@
+# RAG App Configuration
+# Copy this file to config.yaml and fill in your API keys.
+# config.yaml is gitignored — never commit your keys.
+
 chromadb:
   collection_name: documents
   persist_dir: ./chroma_db
+
 vector_store:
   backend: chromadb
   chromadb:
@@ -9,25 +14,32 @@ vector_store:
   qdrant:
     url: http://localhost:6333
     collection_name: documents
+
 embedding:
   api_key: ${EMBEDDING_API_KEY}
   model: BAAI/bge-m3
   provider: local
+
 langfuse:
   enabled: false
   host: http://localhost:3000
   public_key: ''
   secret_key: ''
+
 llm:
   api_key: ${LLM_API_KEY}
-  base_url: 
+  base_url: ''
   model: deepseek-chat
   provider: deepseek
+
 namespace: default
+
 redis:
   url: redis://localhost:6379
+
 reranker:
   enabled: false
+
 server:
   host: 127.0.0.1
   port: 8000

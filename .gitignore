@@ -25,6 +25,9 @@ chroma_db/
 # Misc
 .DS_Store
 
+# Local config (contains secrets — use config.example.yaml as template)
+config.yaml
+
 # App runtime data
 checkpoints.db*
 .superpowers/
