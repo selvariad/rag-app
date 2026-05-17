@@ -222,7 +222,7 @@ async def query_stream(req: Request):
         # Send connected event immediately so frontend knows stream is alive
         yield {"event": "connected", "data": ""}
 
-        graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
+        graph = build_rag_graph(get_retriever(), get_model())
         store = get_conversation_store()
         retrieval_query = RetrievalQuery(
             text=question,
@@ -244,11 +244,8 @@ async def query_stream(req: Request):
             "check": "Verifying accuracy...",
         }
         try:
-            stream_config = {
-                "callbacks": _get_callbacks(),
-                "configurable": {"thread_id": conversation_id},
-            }
-            async for chunk in graph.astream(state, stream_config):
+            stream_callbacks, _ = _get_callbacks()
+            async for chunk in graph.astream(state, {"callbacks": stream_callbacks}):
                 for node_name, node_data in chunk.items():
                     label = node_labels.get(node_name, node_name)
                     yield {"event": "step", "data": label}
@@ -258,8 +255,11 @@ async def query_stream(req: Request):
                             yield {"event": "source", "data": c.content[:150]}
                     if node_name == "generate" and "answer" in node_data:
                         answer = node_data.get("answer", "")
-        except Exception:
-            yield {"event": "error", "data": "Query failed. Check your LLM configuration."}
+        except Exception as e:
+            import traceback, sys
+            print(f"Stream error: {e}", file=sys.stderr)
+            traceback.print_exc()
+            yield {"event": "error", "data": f"Query failed: {e}"}
             return
 
         # Stream answer characters for typewriter effect
