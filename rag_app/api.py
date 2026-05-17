@@ -84,12 +84,23 @@ async def upload_document(
         redis = await create_pool(
             RedisSettings.from_dsn(get_config().redis.url)
         )
-        await redis.enqueue_job(
+        job = await redis.enqueue_job(
             "ingest_document", str(tmp_path), namespace, force,
             _job_id=source_id,
         )
-        _job_store[source_id] = {"status": "pending", "filename": safe_name}
         await redis.close()
+
+        if job is None:
+            # Duplicate job — already queued or completed
+            tmp_path.unlink(missing_ok=True)
+            if _is_htmx(request):
+                return HTMLResponse(f"""<div class="upload-result upload-duplicate">
+<span class="upload-icon">&#x26A0;</span>
+<div><strong>{html.escape(safe_name)}</strong><br><small>Already queued for processing</small></div>
+</div>""")
+            return {"job_id": source_id, "status": "duplicate"}
+
+        _job_store[source_id] = {"status": "pending", "filename": safe_name}
         if _is_htmx(request):
             return HTMLResponse(f"""<div class="upload-result upload-success">
 <span class="upload-icon">&#x23F3;</span>
