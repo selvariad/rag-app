@@ -37,6 +37,11 @@ namespace: default
 redis:
   url: redis://localhost:6379
 
+structured_query:
+  enabled: true
+  db_path: ":memory:"
+  ddl: ""
+
 reranker:
   enabled: false
 

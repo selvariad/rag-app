@@ -14,6 +14,7 @@ _embedder = None
 _model = None
 _conversation_store = None
 _checkpointer = None
+_sql_engine = None
 
 
 def init(config: AppConfig):
@@ -50,6 +51,12 @@ def init(config: AppConfig):
         base_url=config.llm.base_url or None,
     )
     _conversation_store = ConversationStore()
+
+    from rag_core.capabilities.structured_query import SQLiteQueryEngine
+    global _sql_engine
+    _sql_engine = SQLiteQueryEngine(db_path=config.structured_query.db_path)
+    if config.structured_query.ddl:
+        _sql_engine.setup_schema(config.structured_query.ddl)
 
 
 def get_config() -> AppConfig:
@@ -94,3 +101,7 @@ def set_checkpointer(cp):
 
 def get_checkpointer():
     return _checkpointer
+
+
+def get_sql_engine():
+    return _sql_engine

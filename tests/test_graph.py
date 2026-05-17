@@ -196,7 +196,7 @@ async def test_chunks_irrelevant_triggers_rewrite():
 
 @pytest.mark.asyncio
 async def test_classify_structured_query():
-    """SQL/metric keywords should trigger structured_query intent with fallback."""
+    """SQL/metric keywords should trigger structured_query route directly (no fallback)."""
     retriever = FakeRetriever()
     model = FakeModel()
     graph = build_rag_graph(retriever, model)
@@ -204,9 +204,9 @@ async def test_classify_structured_query():
     state: RAGState = {"question": "how many users signed up last month"}
     result = await graph.ainvoke(state, {"configurable": {"thread_id": "test_sql"}})
 
+    assert result.get("route") == "structured_query"
     assert result.get("intended_route") == "structured_query"
-    assert "not yet implemented" in result.get("route_fallback_reason", "")
-    assert result.get("route") == "production_rag"
+    # No fallback — structured_query is now implemented
 
 
 @pytest.mark.asyncio

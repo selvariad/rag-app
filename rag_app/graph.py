@@ -50,6 +50,37 @@ def build_rag_graph(retriever: Retriever, model: ChatModel, checkpointer=None) -
     return graph.compile(checkpointer=checkpointer)
 
 
+def classify_route(question: str) -> dict:
+    """Standalone route classifier. Returns {route, intended_route, route_fallback_reason}.
+    Call before building a graph so we can dispatch to the correct graph.
+    """
+    STRUCTURED = re.compile(
+        r"\b(SQL|table|count\s+(of|the)|SUM|AVG|GROUP\s+BY|order|metric|dashboard|"
+        r"how many|how much|total|average|percent|revenue|customers?|users?)\b",
+        re.IGNORECASE,
+    )
+    DEEP_RESEARCH = re.compile(
+        r"\b(research|compare|survey|market|strategy|report|analysis|trend|"
+        r"pros and cons|versus|vs\.?)\b",
+        re.IGNORECASE,
+    )
+    AGENTIC = re.compile(
+        r"\b(debug|code|file path|function|class|error|traceback|stack trace|"
+        r"multi.?hop|follow.?up|where is|find .* in)\b",
+        re.IGNORECASE,
+    )
+
+    if STRUCTURED.search(question):
+        return {"route": "structured_query", "intended_route": "structured_query"}
+    if AGENTIC.search(question):
+        return {"route": "production_rag", "intended_route": "agentic_retrieval",
+                "route_fallback_reason": "agentic_retrieval not yet implemented — using RAG"}
+    if DEEP_RESEARCH.search(question):
+        return {"route": "production_rag", "intended_route": "deep_research",
+                "route_fallback_reason": "deep_research not yet implemented — using RAG"}
+    return {"route": "production_rag", "intended_route": "production_rag"}
+
+
 def classify_route_node():
     """Heuristic route classifier based on query keywords.
     Returns intended_route (best path), route (actual, may fall back),
@@ -80,8 +111,7 @@ def classify_route_node():
             intended = "agentic_retrieval"
             reason = "agentic_retrieval not yet implemented — using RAG"
         elif STRUCTURED.search(question):
-            intended = "structured_query"
-            reason = "structured_query not yet implemented — using RAG"
+            return {"route": "structured_query", "intended_route": "structured_query"}
         elif DEEP_RESEARCH.search(question):
             intended = "deep_research"
             reason = "deep_research not yet implemented — using RAG"

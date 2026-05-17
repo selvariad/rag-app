@@ -12,10 +12,10 @@ from rag_core.types import (
     RetrievalQuery, MetadataFilter, Message, QueryResult,
     IngestionResult, DEFAULT_NAMESPACE,
 )
-from rag_app.graph import build_rag_graph, RAGState
+from rag_app.graph import build_rag_graph, classify_route, RAGState
 from rag_app.deps import (
     get_retriever, get_indexer, get_embedder, get_model,
-    get_conversation_store, get_config, get_checkpointer,
+    get_conversation_store, get_config, get_checkpointer, get_sql_engine,
 )
 
 router = APIRouter()
@@ -179,27 +179,45 @@ async def query(req: Request):
 
     conversation_id = body.get("conversation_id", "default")
     store = get_conversation_store()
-
-    graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
     trace_id = uuid.uuid4().hex
 
-    # Inject conversation history into state for rewrite context
-    history = store.get(conversation_id, n=6)
-    state: RAGState = {
-        "question": question, "retrieval_query": retrieval_query,
-        "messages": history,
-    }
+    # Classify route first, then dispatch to the right graph
+    route_info = classify_route(question)
+    selected_route = route_info["route"]
 
-    callbacks, handler = _get_callbacks(trace_id)
-    config = {
-        "callbacks": callbacks,
-        "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
-    }
-    result = await graph.ainvoke(state, config)
-    _store_trace(trace_id, handler)
+    if selected_route == "structured_query":
+        from rag_app.graphs.structured_query import (
+            build_structured_query_graph, StructuredQueryState,
+        )
+        engine = get_sql_engine()
+        graph = build_structured_query_graph(get_model(), engine)
+        state: StructuredQueryState = {"question": question, "route": "structured_query"}
+        result = await graph.ainvoke(state)
+        answer = result.get("answer", "Query returned no results.")
+        chunks = []
+        structured_result = result.get("result")
+    else:
+        # Production RAG (or fallback from unimplemented route)
+        graph = build_rag_graph(get_retriever(), get_model(), get_checkpointer())
+        history = store.get(conversation_id, n=6)
+        rag_state: RAGState = {
+            "question": question, "retrieval_query": retrieval_query,
+            "messages": history,
+            "route": selected_route,
+            "intended_route": route_info.get("intended_route", selected_route),
+            "route_fallback_reason": route_info.get("route_fallback_reason", ""),
+        }
 
-    answer = result.get("answer", "I cannot confidently answer this question based on the available documents.")
-    chunks = result.get("chunks", [])
+        callbacks, handler = _get_callbacks(trace_id)
+        config = {
+            "callbacks": callbacks,
+            "configurable": {"thread_id": f"{conversation_id}:{uuid.uuid4().hex}"},
+        }
+        result = await graph.ainvoke(rag_state, config)
+        _store_trace(trace_id, handler)
+        answer = result.get("answer", "I cannot confidently answer this question based on the available documents.")
+        chunks = result.get("chunks", [])
+        structured_result = None
 
     store.add(conversation_id, Message(role="user", content=question))
     store.add(conversation_id, Message(role="assistant", content=answer))
@@ -214,10 +232,10 @@ async def query(req: Request):
         return HTMLResponse(f"""<div class="message user"><p>{html.escape(question)}</p></div>
 <div class="message assistant">{html.escape(answer)}{sources_html}</div>""")
 
-    route = result.get("route", "production_rag")
+    route = result.get("route", selected_route) if selected_route != "structured_query" else selected_route
     intended_route = result.get("intended_route", route)
     fallback_reason = result.get("route_fallback_reason", "")
-    return {
+    resp = {
         "answer": answer,
         "route": route,
         "intended_route": intended_route,
@@ -226,6 +244,13 @@ async def query(req: Request):
         "trace_id": trace_id,
         "tokens": {"prompt": 0, "completion": 0},
     }
+    if structured_result is not None:
+        resp["structured_result"] = {
+            "columns": structured_result.columns,
+            "rows": structured_result.rows[:50],
+            "row_count": structured_result.row_count,
+        }
+    return resp
 
 
 @router.post("/api/query/stream")
@@ -389,6 +414,11 @@ async def save_settings(req: Request):
                 "url": cfg.vector_store.qdrant.url,
                 "collection_name": cfg.vector_store.qdrant.collection_name,
             },
+        },
+        "structured_query": {
+            "enabled": cfg.structured_query.enabled,
+            "db_path": cfg.structured_query.db_path,
+            "ddl": cfg.structured_query.ddl,
         },
         "redis": {"url": cfg.redis.url},
         "server": {"host": cfg.server.host, "port": cfg.server.port},

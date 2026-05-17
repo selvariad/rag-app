@@ -50,6 +50,13 @@ class RedisConfig:
 
 
 @dataclass
+class StructuredQueryConfig:
+    enabled: bool = True
+    db_path: str = ":memory:"
+    ddl: str = ""
+
+
+@dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8000
@@ -71,6 +78,7 @@ class AppConfig:
     reranker: RerankerConfig = field(default_factory=RerankerConfig)
     chromadb: ChromaDBConfig = field(default_factory=ChromaDBConfig)
     vector_store: VectorStoreConfig = field(default_factory=VectorStoreConfig)
+    structured_query: StructuredQueryConfig = field(default_factory=StructuredQueryConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     langfuse: LangFuseConfig = field(default_factory=LangFuseConfig)
@@ -110,6 +118,7 @@ def load_config(path: str) -> AppConfig:
         qdrant=qdrant,
     )
     redis = _build(RedisConfig, raw.get("redis", {}))
+    structured = _build(StructuredQueryConfig, raw.get("structured_query", {}))
     server = _build(ServerConfig, raw.get("server", {}))
     langfuse = _build(LangFuseConfig, raw.get("langfuse", {}))
 
@@ -117,5 +126,6 @@ def load_config(path: str) -> AppConfig:
         namespace=raw.get("namespace", "default"),
         llm=llm, embedding=embedding, reranker=reranker,
         chromadb=chromadb, vector_store=vector_store,
+        structured_query=structured,
         redis=redis, server=server, langfuse=langfuse,
     )
