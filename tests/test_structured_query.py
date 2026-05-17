@@ -133,6 +133,22 @@ async def test_table_allowlist_blocks_restricted_table():
 
 
 @pytest.mark.asyncio
+async def test_empty_allowlist_denies_all():
+    """[] should deny all tables explicitly."""
+    engine = SQLiteQueryEngine(table_allowlist=[])
+    engine.setup_schema("CREATE TABLE t (id INTEGER)")
+
+    with pytest.raises(ValueError, match="not in allowlist"):
+        await engine.execute_readonly(StructuredQuery(sql="SELECT * FROM t"))
+
+    # But None allowlist allows
+    engine2 = SQLiteQueryEngine(table_allowlist=None)
+    engine2.setup_schema("CREATE TABLE t (id INTEGER)")
+    result = await engine2.execute_readonly(StructuredQuery(sql="SELECT * FROM t"))
+    assert result.row_count == 0  # Table exists but empty
+
+
+@pytest.mark.asyncio
 async def test_default_limit_applied():
     engine = SQLiteQueryEngine(default_limit=5)
     engine.setup_schema("CREATE TABLE t (id INTEGER)")

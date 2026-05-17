@@ -217,12 +217,17 @@ async def query(req: Request):
                 answer = result.get("answer", "")
                 structured_result = result.get("result")
 
-                if structured_result is None or result.get("error"):
-                    # SQL failed — fall back to RAG
+                if result.get("error"):
+                    err = result["error"]
+                    if "validation" in err.lower() or "not in allowlist" in err.lower() or "Only SELECT" in err:
+                        # Validation error — return as-is, don't silently fall back
+                        answer = f"SQL validation failed: {err}"
+                    elif structured_result is None:
+                        selected_route = "production_rag"
+                        route_info["route_fallback_reason"] = f"SQL execution failed: {err}"
+                elif structured_result is None:
                     selected_route = "production_rag"
-                    route_info["route_fallback_reason"] = (
-                        result.get("error") or "structured query returned no data"
-                    )
+                    route_info["route_fallback_reason"] = "structured query returned no data"
 
     if selected_route != "structured_query":
         # Production RAG (or fallback)
@@ -256,12 +261,18 @@ async def query(req: Request):
         return HTMLResponse(f"""<div class="message user"><p>{html.escape(question)}</p></div>
 <div class="message assistant">{html.escape(answer)}{sources_html}</div>""")
 
-    route = result.get("route", selected_route) if selected_route != "structured_query" else selected_route
-    intended_route = result.get("intended_route", route)
-    fallback_reason = result.get("route_fallback_reason", "")
+    route = selected_route if selected_route == "structured_query" else result.get("route", selected_route)
+    intended_route = route_info.get("intended_route", route)
+    fallback_reason = route_info.get("route_fallback_reason", "")
+    route_reason = (
+        "has_structured_schema" if selected_route == "structured_query"
+        else fallback_reason if fallback_reason
+        else "default"
+    )
     resp = {
         "answer": answer,
         "route": route,
+        "route_reason": route_reason,
         "intended_route": intended_route,
         "route_fallback_reason": fallback_reason,
         "sources": [{"content": c.content, "source_id": c.source_id, "score": c.score} for c in chunks],
@@ -273,6 +284,7 @@ async def query(req: Request):
             "columns": structured_result.columns,
             "rows": structured_result.rows[:50],
             "row_count": structured_result.row_count,
+            "limit_applied": structured_result.limit_applied,
         }
     return resp
 
